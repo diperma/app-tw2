@@ -9,12 +9,11 @@ const Filters = ({
   onDistrictChange
 }) => {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+    <div className="filters-container">
+      <div className="filter-group">
         <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Provinsi:</label>
         <select 
           className="filter-select" 
-          style={{ minWidth: '150px' }}
           value={selectedProvince} 
           onChange={(e) => onProvinceChange(e.target.value)}
         >
@@ -25,11 +24,10 @@ const Filters = ({
         </select>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <div className="filter-group">
         <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Kabupaten:</label>
         <select 
           className="filter-select" 
-          style={{ minWidth: '150px' }}
           value={selectedDistrict} 
           onChange={(e) => onDistrictChange(e.target.value)}
           disabled={selectedProvince === 'All'}

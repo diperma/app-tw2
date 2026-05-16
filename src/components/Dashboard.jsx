@@ -48,23 +48,21 @@ const Dashboard = () => {
 
   return (
     <div className="app-container" style={{ opacity: loading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
-      <header>
+      <header className="header-content">
         <div>
           <h1>Dasbor Kesiapan Koperasi Desa/Kelurahan Merah Putih</h1>
           <p style={{ color: 'var(--text-muted)', marginLeft: '1rem', marginTop: '0.2rem' }}>
             Status kesiapan operasional KDKMP per tanggal 12 Mei 2026
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          <Filters 
-            provinces={provinces} 
-            selectedProvince={province} 
-            onProvinceChange={setProvince} 
-            districts={districts}
-            selectedDistrict={district}
-            onDistrictChange={setDistrict}
-          />
-        </div>
+        <Filters 
+          provinces={provinces} 
+          selectedProvince={province} 
+          onProvinceChange={setProvince} 
+          districts={districts}
+          selectedDistrict={district}
+          onDistrictChange={setDistrict}
+        />
       </header>
 
       <StatCards stats={stats} />
@@ -74,7 +72,7 @@ const Dashboard = () => {
         <Highlights highlights={highlights} />
       </section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
+      <div className="charts-grid">
         <Charts type="store" province={province} district={district} />
         <Charts type="rat" province={province} district={district} />
       </div>
