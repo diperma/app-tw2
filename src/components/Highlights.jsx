@@ -21,9 +21,12 @@ const Highlights = ({ highlights }) => {
   };
 
   const handleExportDetail = () => {
-    // Note: This export uses current province logic or just district. 
-    // Since district is globally unique in this context, just district is fine.
     window.open(getExportUrl('All', selectedDistrict), '_blank');
+  };
+
+  const handleDownloadDistrict = (e, districtName, province) => {
+    e.stopPropagation();
+    window.open(getExportUrl(province || 'All', districtName), '_blank');
   };
 
   return (
@@ -46,6 +49,7 @@ const Highlights = ({ highlights }) => {
                     <th style={{ padding: '0.5rem' }}>#</th>
                     <th style={{ padding: '0.5rem' }}>Kabupaten</th>
                     <th style={{ padding: '0.5rem' }}>Nilai</th>
+                    <th style={{ padding: '0.5rem', textAlign: 'center' }}>Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -58,6 +62,16 @@ const Highlights = ({ highlights }) => {
                       <td style={{ padding: '0.5rem' }}>{idx + 1}</td>
                       <td style={{ padding: '0.5rem', fontWeight: 500 }}>{d.name}</td>
                       <td style={{ padding: '0.5rem', color: 'var(--primary)', fontWeight: 600 }}>{d.value}</td>
+                      <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                        <button 
+                          className="btn-ghost"
+                          title="Download Data Kabupaten"
+                          onClick={(e) => handleDownloadDistrict(e, d.name, d.province)}
+                          style={{ padding: '0.3rem', borderRadius: '4px' }}
+                        >
+                          <Download size={14} color="var(--primary)" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

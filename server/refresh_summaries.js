@@ -57,6 +57,7 @@ async function refresh() {
           highlights: [
             { $group: {
               _id: '$territorial_data.district',
+              province: { $first: '$territorial_data.province' },
               savings_total: { $sum: '$savings_summary.total_amount' },
               economic_impact_total: { $sum: '$economic_impact.total_value' },
               rat_total: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } }
@@ -81,7 +82,7 @@ async function refresh() {
           ],
           regional: [
              { $group: {
-                _id: (district !== 'All') ? '$territorial_data.district' : (province !== 'All') ? '$territorial_data.district' : '$territorial_data.province',
+                _id: (district !== 'All') ? '$territorial_data.subdistrict' : (province !== 'All') ? '$territorial_data.district' : '$territorial_data.province',
                 total_koperasi: { $sum: 1 },
                 has_npwp: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.npwp_count', 0] }, 1, 0] } },
                 has_nib: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.nib_count', 0] }, 1, 0] } },
@@ -99,7 +100,7 @@ async function refresh() {
         province,
         district,
         stats: r.stats[0] || { total_villages: 0, total_simpanan: 0, total_transaksi: 0, rat_submitted: 0, has_npwp: 0, has_nib: 0 },
-        highlights: r.highlights,
+        highlights: r.highlights.map(h => ({ ...h, province: h.province })),
         charts: {
           store: r.chart_store.map(s => ({ label: s._id, value: s.value })),
           rat: r.chart_rat[0] || { Verified: 0, Draft: 0, 'Belum RAT': 0 }

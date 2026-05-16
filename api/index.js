@@ -100,9 +100,9 @@ router.get('/highlights', async (req, res) => {
 
     if (summary) {
       return res.json([
-        { type: "Simpanan", icon: "Wallet", districts: summary.highlights.map(d => ({ name: d._id, value: `Rp${formatID(d.savings_total / 1000000)} Jt` })) },
-        { type: "Transaksi", icon: "ArrowUpRight", districts: summary.highlights.map(d => ({ name: d._id, value: `Rp${formatID(d.economic_impact_total / 1000000)} Jt` })).sort((a,b) => parseFloat(b.value.replace(/[^\d]/g,'')) - parseFloat(a.value.replace(/[^\d]/g,''))) },
-        { type: "Penyelesaian RAT", icon: "CheckCircle", districts: summary.highlights.map(d => ({ name: d._id, value: `${formatIDInt(d.rat_total)} RAT` })).sort((a,b) => parseInt(b.value) - parseInt(a.value)) }
+        { type: "Simpanan", icon: "Wallet", districts: summary.highlights.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.savings_total / 1000000)} Jt` })) },
+        { type: "Transaksi", icon: "ArrowUpRight", districts: summary.highlights.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.economic_impact_total / 1000000)} Jt` })).sort((a,b) => parseFloat(b.value.replace(/[^\d]/g,'')) - parseFloat(a.value.replace(/[^\d]/g,''))) },
+        { type: "Penyelesaian RAT", icon: "CheckCircle", districts: summary.highlights.map(d => ({ name: d._id, province: d.province, value: `${formatIDInt(d.rat_total)} RAT` })).sort((a,b) => parseInt(b.value) - parseInt(a.value)) }
       ]);
     }
 
@@ -115,6 +115,7 @@ router.get('/highlights', async (req, res) => {
       { $match: match },
       { $group: {
         _id: '$territorial_data.district',
+        province: { $first: '$territorial_data.province' },
         savings_total: { $sum: '$savings_summary.total_amount' },
         economic_impact_total: { $sum: '$economic_impact.total_value' },
         rat_total: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } }
@@ -123,7 +124,7 @@ router.get('/highlights', async (req, res) => {
     ]).toArray();
 
     const group = (arr, valKey) => {
-      return arr.map(d => ({ name: d._id, value: d[valKey] })).sort((a, b) => b.value - a.value);
+      return arr.map(d => ({ name: d._id, province: d.province, value: d[valKey] })).sort((a, b) => b.value - a.value);
     };
 
     const savings = group(data, 'savings_total');
@@ -131,9 +132,9 @@ router.get('/highlights', async (req, res) => {
     const ratSorted = group(data, 'rat_total');
 
     res.json([
-      { type: "Simpanan", icon: "Wallet", districts: savings.slice(0, 10).map(d => ({ name: d.name, value: `Rp${formatID(d.value / 1000000)} Jt` })) },
-      { type: "Transaksi", icon: "ArrowUpRight", districts: transactions.slice(0, 10).map(d => ({ name: d.name, value: `Rp${formatID(d.value / 1000000)} Jt` })) },
-      { type: "Penyelesaian RAT", icon: "CheckCircle", districts: ratSorted.slice(0, 10).map(d => ({ name: d.name, value: `${formatIDInt(d.value)} RAT` })) }
+      { type: "Simpanan", icon: "Wallet", districts: savings.slice(0, 10).map(d => ({ name: d.name, province: d.province, value: `Rp${formatID(d.value / 1000000)} Jt` })) },
+      { type: "Transaksi", icon: "ArrowUpRight", districts: transactions.slice(0, 10).map(d => ({ name: d.name, province: d.province, value: `Rp${formatID(d.value / 1000000)} Jt` })) },
+      { type: "Penyelesaian RAT", icon: "CheckCircle", districts: ratSorted.slice(0, 10).map(d => ({ name: d.name, province: d.province, value: `${formatIDInt(d.value)} RAT` })) }
     ]);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -219,7 +220,7 @@ router.get('/regional-data', async (req, res) => {
     if (province !== 'All') match['territorial_data.province'] = province;
     if (district !== 'All') match['territorial_data.district'] = district;
 
-    const groupKey = (district !== 'All') ? '$territorial_data.district' : (province !== 'All') ? '$territorial_data.district' : '$territorial_data.province';
+    const groupKey = (district !== 'All') ? '$territorial_data.subdistrict' : (province !== 'All') ? '$territorial_data.district' : '$territorial_data.province';
 
     const data = await col.aggregate([
       { $match: match },
@@ -288,13 +289,14 @@ router.get('/district-detail', async (req, res) => {
 });
 
 router.get('/export', async (req, res) => {
-  const { province, district } = req.query;
+  const { province, district, subdistrict } = req.query;
   try {
     await connectDb();
     const col = getCollection();
     const match = {};
     if (province && province !== 'All') match['territorial_data.province'] = province;
     if (district && district !== 'All') match['territorial_data.district'] = district;
+    if (subdistrict && subdistrict !== 'All') match['territorial_data.subdistrict'] = subdistrict;
 
     const data = await col.find(match).toArray();
 

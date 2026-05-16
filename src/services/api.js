@@ -41,8 +41,9 @@ export const fetchDistrictDetails = async (districtName, type) => {
   return res.json();
 };
 
-export const getExportUrl = (province, district) => {
+export const getExportUrl = (province, district, subdistrict) => {
   let url = `${API_BASE_URL}/export?province=${province}`;
   if (district && district !== 'All') url += `&district=${district}`;
+  if (subdistrict && subdistrict !== 'All') url += `&subdistrict=${subdistrict}`;
   return url;
 };

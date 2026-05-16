@@ -8,12 +8,18 @@ const RegionalTable = ({ data, currentProvince, currentDistrict }) => {
   const handleExportRow = (name) => {
     let province = currentProvince;
     let district = currentDistrict;
+    let subdistrict = 'All';
+
     if (currentProvince === 'All') {
       province = name;
     } else if (currentDistrict === 'All') {
       district = name;
+    } else {
+      // If we have both province and district selected, 
+      // the 'name' in this row must be a subdistrict (Kecamatan).
+      subdistrict = name;
     }
-    window.open(getExportUrl(province, district), '_blank');
+    window.open(getExportUrl(province, district, subdistrict), '_blank');
   };
 
   const sortedData = useMemo(() => {
