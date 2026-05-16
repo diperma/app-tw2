@@ -1,21 +1,15 @@
 import express from 'express';
 import cors from 'cors';
 import ExcelJS from 'exceljs';
+import { connectDb, getCollection } from './db.js';
 import dotenv from 'dotenv';
-import { connectDb, getCollection } from '../server/db.js';
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Robust CORS configuration
-app.use(cors({
-  origin: '*', // Allow all during debugging
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
-
+app.use(cors());
 app.use(express.json());
 
 const formatID = (num, digits = 1) => {
@@ -28,12 +22,8 @@ const formatIDInt = (num) => {
   return Number(num).toLocaleString('id-ID');
 };
 
-// Use a router to handle paths more flexibly
-const router = express.Router();
-
-router.get('/provinces', async (req, res) => {
+app.get('/api/provinces', async (req, res) => {
   try {
-    await connectDb();
     const col = getCollection();
     const data = await col.distinct('territorial_data.province');
     res.json(data.filter(Boolean).sort());
@@ -42,10 +32,9 @@ router.get('/provinces', async (req, res) => {
   }
 });
 
-router.get('/districts', async (req, res) => {
+app.get('/api/districts', async (req, res) => {
   const { province } = req.query;
   try {
-    await connectDb();
     const col = getCollection();
     const query = {};
     if (province && province !== 'All') query['territorial_data.province'] = province;
@@ -56,7 +45,7 @@ router.get('/districts', async (req, res) => {
   }
 });
 
-router.get('/stats', async (req, res) => {
+app.get('/api/stats', async (req, res) => {
   const { province = 'All', district = 'All' } = req.query;
   try {
     const db = await connectDb();
@@ -67,6 +56,7 @@ router.get('/stats', async (req, res) => {
       return res.json(summary.stats);
     }
 
+    // Fallback to live aggregation
     const col = getCollection();
     const match = {};
     if (province !== 'All') match['territorial_data.province'] = province;
@@ -91,7 +81,7 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-router.get('/highlights', async (req, res) => {
+app.get('/api/highlights', async (req, res) => {
   const { province = 'All', district = 'All' } = req.query;
   try {
     const db = await connectDb();
@@ -140,7 +130,7 @@ router.get('/highlights', async (req, res) => {
   }
 });
 
-router.get('/charts', async (req, res) => {
+app.get('/api/charts', async (req, res) => {
   const { province = 'All', district = 'All' } = req.query;
   try {
     const db = await connectDb();
@@ -188,7 +178,7 @@ router.get('/charts', async (req, res) => {
   }
 });
 
-router.get('/regional-data', async (req, res) => {
+app.get('/api/regional-data', async (req, res) => {
   const { province = 'All', district = 'All' } = req.query;
   try {
     const db = await connectDb();
@@ -256,10 +246,9 @@ router.get('/regional-data', async (req, res) => {
   }
 });
 
-router.get('/district-detail', async (req, res) => {
+app.get('/api/district-detail', async (req, res) => {
   const { district, type } = req.query;
   try {
-    await connectDb();
     const col = getCollection();
     const sort = {};
     if (type === 'Simpanan') sort['savings_summary.total_amount'] = -1;
@@ -287,10 +276,9 @@ router.get('/district-detail', async (req, res) => {
   }
 });
 
-router.get('/export', async (req, res) => {
+app.get('/api/export', async (req, res) => {
   const { province, district } = req.query;
   try {
-    await connectDb();
     const col = getCollection();
     const match = {};
     if (province && province !== 'All') match['territorial_data.province'] = province;
@@ -339,15 +327,14 @@ router.get('/export', async (req, res) => {
   }
 });
 
-// Mount the router at /api and also at root to handle both direct and rewritten requests
-app.use('/api', router);
-app.use('/', router);
-
-if (!process.env.VERCEL) {
-  await connectDb();
-  app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
-  });
+if (process.env.VERCEL) {
+  // Handled by api/index.js
+} else {
+  connectDb().then(() => {
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+  }).catch(console.error);
 }
 
 export default app;
