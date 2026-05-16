@@ -1,8 +1,10 @@
-const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
-const cors = require('cors');
-const ExcelJS = require('exceljs');
-require('dotenv').config();
+import express from 'express';
+import { createClient } from '@supabase/supabase-js';
+import cors from 'cors';
+import ExcelJS from 'exceljs';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -11,7 +13,13 @@ const supabaseUrl = process.env.SUPABASE_URL || 'https://qgavvzqwokypczdjopor.su
 const supabaseKey = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnYXZ2enF3b2t5cGN6ZGpvcG9yIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODkwNzM4NSwiZXhwIjoyMDk0NDgzMzg1fQ.YetVEqyYsSbmtTv6aY5t2LufA1GwRTO4SXPx0FjK9b4';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-app.use(cors());
+// Robust CORS configuration
+app.use(cors({
+  origin: '*', // Allow all during debugging
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
 app.use(express.json());
 
 const formatID = (num, digits = 1) => {
@@ -24,7 +32,10 @@ const formatIDInt = (num) => {
   return Number(num).toLocaleString('id-ID');
 };
 
-app.get('/api/provinces', async (req, res) => {
+// Use a router to handle paths more flexibly
+const router = express.Router();
+
+router.get('/provinces', async (req, res) => {
   try {
     const { data, error } = await supabase.rpc('get_provinces');
     if (error) throw error;
@@ -34,7 +45,7 @@ app.get('/api/provinces', async (req, res) => {
   }
 });
 
-app.get('/api/districts', async (req, res) => {
+router.get('/districts', async (req, res) => {
   const { province } = req.query;
   try {
     const { data, error } = await supabase.rpc('get_districts', { p_province: province || 'All' });
@@ -45,7 +56,7 @@ app.get('/api/districts', async (req, res) => {
   }
 });
 
-app.get('/api/stats', async (req, res) => {
+router.get('/stats', async (req, res) => {
   const { province, district } = req.query;
   try {
     const { data, error } = await supabase.rpc('get_stats', { 
@@ -59,7 +70,7 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-app.get('/api/highlights', async (req, res) => {
+router.get('/highlights', async (req, res) => {
   const { province, district } = req.query;
   try {
     const query = supabase.from('village_readiness').select('district, savings_total, economic_impact_total, rat_verified, rat_draft');
@@ -95,7 +106,7 @@ app.get('/api/highlights', async (req, res) => {
   }
 });
 
-app.get('/api/charts', async (req, res) => {
+router.get('/charts', async (req, res) => {
   const { province, district } = req.query;
   try {
     const query = supabase.from('village_readiness').select('store_readiness, rat_verified, rat_draft, rat_none');
@@ -126,7 +137,7 @@ app.get('/api/charts', async (req, res) => {
   }
 });
 
-app.get('/api/regional-data', async (req, res) => {
+router.get('/regional-data', async (req, res) => {
   const { province, district } = req.query;
   try {
     const { data, error } = await supabase.rpc('get_regional_data', { 
@@ -156,7 +167,7 @@ app.get('/api/regional-data', async (req, res) => {
   }
 });
 
-app.get('/api/district-detail', async (req, res) => {
+router.get('/district-detail', async (req, res) => {
   const { district, type } = req.query;
   try {
     let query = supabase.from('village_readiness').select('village, savings_total, economic_impact_total, rat_verified, rat_draft');
@@ -185,7 +196,7 @@ app.get('/api/district-detail', async (req, res) => {
   }
 });
 
-app.get('/api/export', async (req, res) => {
+router.get('/export', async (req, res) => {
   const { province, district } = req.query;
   try {
     const workbook = new ExcelJS.Workbook();
@@ -236,12 +247,14 @@ app.get('/api/export', async (req, res) => {
   }
 });
 
-if (process.env.VERCEL) {
-  // No connectDb needed for Supabase
-} else {
+// Mount the router at /api and also at root to handle both direct and rewritten requests
+app.use('/api', router);
+app.use('/', router);
+
+if (!process.env.VERCEL) {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });
 }
 
-module.exports = app;
+export default app;
