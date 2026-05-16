@@ -64,7 +64,7 @@ router.get('/stats', async (req, res) => {
       p_district: district || 'All' 
     });
     if (error) throw error;
-    res.json(data);
+    res.json(data[0] || {});
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
