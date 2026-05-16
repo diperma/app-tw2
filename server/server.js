@@ -89,10 +89,15 @@ app.get('/api/highlights', async (req, res) => {
     const summary = await summaryCol.findOne({ province, district });
 
     if (summary) {
+      const h = summary.highlights;
+      const savingsList = Array.isArray(h) ? h : (h.savings || []);
+      const transList = Array.isArray(h) ? h : (h.transactions || []);
+      const ratList = Array.isArray(h) ? h : (h.rat || []);
+
       return res.json([
-        { type: "Simpanan", icon: "Wallet", districts: summary.highlights.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.savings_total / 1000000)} Jt` })) },
-        { type: "Transaksi", icon: "ArrowUpRight", districts: summary.highlights.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.economic_impact_total / 1000000)} Jt` })).sort((a,b) => parseFloat(b.value.replace(/[^\d]/g,'')) - parseFloat(a.value.replace(/[^\d]/g,''))) },
-        { type: "Penyelesaian RAT", icon: "CheckCircle", districts: summary.highlights.map(d => ({ name: d._id, province: d.province, value: `${formatIDInt(d.rat_total)} RAT` })).sort((a,b) => parseInt(b.value) - parseInt(a.value)) }
+        { type: "Simpanan", icon: "Wallet", districts: savingsList.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.savings_total / 1000000)} Jt` })) },
+        { type: "Transaksi", icon: "ArrowUpRight", districts: transList.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.economic_impact_total / 1000000)} Jt` })).sort((a,b) => parseFloat(b.value.replace(/[^\d]/g,'')) - parseFloat(a.value.replace(/[^\d]/g,''))) },
+        { type: "Penyelesaian RAT", icon: "CheckCircle", districts: ratList.map(d => ({ name: d._id, province: d.province, value: `${formatIDInt(d.rat_total)} RAT` })).sort((a,b) => parseInt(b.value) - parseInt(a.value)) }
       ]);
     }
 

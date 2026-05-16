@@ -54,7 +54,7 @@ async function refresh() {
               has_nib: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.nib_count', 0] }, 1, 0] } }
             }}
           ],
-          highlights: [
+          highlights_savings: [
             { $group: {
               _id: '$territorial_data.district',
               province: { $first: '$territorial_data.province' },
@@ -63,6 +63,28 @@ async function refresh() {
               rat_total: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } }
             }},
             { $sort: { savings_total: -1 } },
+            { $limit: 10 }
+          ],
+          highlights_transactions: [
+            { $group: {
+              _id: '$territorial_data.district',
+              province: { $first: '$territorial_data.province' },
+              savings_total: { $sum: '$savings_summary.total_amount' },
+              economic_impact_total: { $sum: '$economic_impact.total_value' },
+              rat_total: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } }
+            }},
+            { $sort: { economic_impact_total: -1 } },
+            { $limit: 10 }
+          ],
+          highlights_rat: [
+            { $group: {
+              _id: '$territorial_data.district',
+              province: { $first: '$territorial_data.province' },
+              savings_total: { $sum: '$savings_summary.total_amount' },
+              economic_impact_total: { $sum: '$economic_impact.total_value' },
+              rat_total: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } }
+            }},
+            { $sort: { rat_total: -1 } },
             { $limit: 10 }
           ],
           chart_rat: [
@@ -100,7 +122,11 @@ async function refresh() {
         province,
         district,
         stats: r.stats[0] || { total_villages: 0, total_simpanan: 0, total_transaksi: 0, rat_submitted: 0, has_npwp: 0, has_nib: 0 },
-        highlights: r.highlights.map(h => ({ ...h, province: h.province })),
+        highlights: {
+          savings: r.highlights_savings.map(h => ({ ...h, province: h.province })),
+          transactions: r.highlights_transactions.map(h => ({ ...h, province: h.province })),
+          rat: r.highlights_rat.map(h => ({ ...h, province: h.province }))
+        },
         charts: {
           store: r.chart_store.map(s => ({ label: s._id, value: s.value })),
           rat: r.chart_rat[0] || { Verified: 0, Draft: 0, 'Belum RAT': 0 }
