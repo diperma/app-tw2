@@ -140,28 +140,53 @@ router.get('/charts', async (req, res) => {
 router.get('/regional-data', async (req, res) => {
   const { province, district } = req.query;
   try {
-    const { data, error } = await supabase.rpc('get_regional_data', { 
-      p_province: province || 'All', 
-      p_district: district || 'All' 
-    });
+    // Bypass the broken get_regional_data RPC (ambiguous rat_verified column).
+    // Aggregate directly from the table in JS instead.
+    let query = supabase
+      .from('village_readiness')
+      .select('province, district, npwp_count, nib_count, rat_verified, rat_draft, savings_total, economic_impact_total');
+
+    if (province && province !== 'All') query = query.eq('province', province);
+    if (district && district !== 'All') query = query.eq('district', district);
+
+    const { data, error } = await query;
     if (error) throw error;
 
-    res.json(data.map((d, i) => ({
+    // Determine grouping key: district when filtering by province, else province
+    const groupKey = (district && district !== 'All') ? 'district' : (province && province !== 'All') ? 'district' : 'province';
+
+    const grouped = {};
+    data.forEach(d => {
+      const key = d[groupKey];
+      if (!grouped[key]) {
+        grouped[key] = { name: key, total_koperasi: 0, has_npwp: 0, has_nib: 0, rat_verified: 0, total_simpanan: 0, total_transaksi: 0 };
+      }
+      grouped[key].total_koperasi += 1;
+      grouped[key].has_npwp += (d.npwp_count > 0 ? 1 : 0);
+      grouped[key].has_nib += (d.nib_count > 0 ? 1 : 0);
+      grouped[key].rat_verified += Number(d.rat_verified) || 0;
+      grouped[key].total_simpanan += Number(d.savings_total) || 0;
+      grouped[key].total_transaksi += Number(d.economic_impact_total) || 0;
+    });
+
+    const result = Object.values(grouped).map((d, i) => ({
       id: i,
       name: d.name,
-      total_koperasi: Number(d.total_koperasi),
-      has_npwp: Number(d.has_npwp),
-      has_nib: Number(d.has_nib),
-      rat_verified: Number(d.rat_verified),
-      total_simpanan: Number(d.total_simpanan),
-      total_transaksi: Number(d.total_transaksi),
+      total_koperasi: d.total_koperasi,
+      has_npwp: d.has_npwp,
+      has_nib: d.has_nib,
+      rat_verified: d.rat_verified,
+      total_simpanan: d.total_simpanan,
+      total_transaksi: d.total_transaksi,
       total_koperasi_fmt: formatIDInt(d.total_koperasi),
       has_npwp_fmt: formatIDInt(d.has_npwp),
       has_nib_fmt: formatIDInt(d.has_nib),
       rat_verified_fmt: formatIDInt(d.rat_verified),
       total_simpanan_fmt: `Rp${formatID(d.total_simpanan / 1000000)} Jt`,
       total_transaksi_fmt: `Rp${formatID(d.total_transaksi / 1000000)} Jt`
-    })));
+    }));
+
+    res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
