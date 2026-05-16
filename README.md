@@ -1,3 +1,12 @@
+# Village Readiness Dashboard (app-tw2)
+
+## 🚀 Deployment Status
+- **Frontend**: [GitHub Pages](https://diperma.github.io/app-tw2/)
+- **Backend**: [Vercel](https://app-tw2-diperma.vercel.app)
+- **Database**: Supabase (Phase 2 - In Progress)
+
+---
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
