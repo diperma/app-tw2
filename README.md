@@ -2,8 +2,9 @@
 
 ## 🚀 Deployment Status
 - **Frontend**: [GitHub Pages](https://diperma.github.io/app-tw2/)
-- **Backend**: [Vercel](https://app-tw2-diperma.vercel.app)
-- **Database**: Supabase (Phase 2 - In Progress)
+- **Backend**: [Vercel](https://app-tw2.vercel.app)
+- **Database**: Supabase (Phase 2 - Live)
+- **Last Infrastructure Update**: 2026-05-16 14:33 (UTC+7)
 
 ---
 
