@@ -34,6 +34,7 @@ const Dashboard = () => {
   // Drawer States
   const [selectedVillageId, setSelectedVillageId] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   // Load Provinces on Initial Mount
   useEffect(() => {
@@ -79,6 +80,7 @@ const Dashboard = () => {
       setStats(s || { total_villages: 0, total_simpanan: 0, total_transaksi: 0, rat_submitted: 0, has_npwp: 0, has_nib: 0 });
       setHighlights(h || []);
       setRegionalData(r || []);
+      setLastUpdated(new Date());
       setLoading(false);
     }).catch(e => {
       console.error('Failed to load dashboard data:', e);
@@ -96,10 +98,34 @@ const Dashboard = () => {
       <header className="header-content">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
-            <h1>Simkopdes Premium Dashboard</h1>
+            <h1>Simkopdes Dashboard</h1>
             <p style={{ color: 'var(--text-muted)', marginTop: '0.4rem', fontSize: '0.9rem' }}>
               Alat verifikasi & kesiapan operasional live KDKMP Seluruh Indonesia
             </p>
+            {lastUpdated && (
+              <div style={{ 
+                color: 'var(--accent)', 
+                marginTop: '0.5rem', 
+                fontSize: '0.78rem', 
+                fontWeight: 600, 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                gap: '0.4rem',
+                background: 'rgba(56, 158, 13, 0.06)',
+                padding: '0.25rem 0.6rem',
+                borderRadius: '6px',
+                border: '1px solid rgba(56, 158, 13, 0.12)'
+              }}>
+                <span style={{ 
+                  display: 'inline-block', 
+                  width: '6px', 
+                  height: '6px', 
+                  backgroundColor: 'var(--accent)', 
+                  borderRadius: '50%'
+                }} />
+                Terakhir diperbarui: {lastUpdated.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })} WIB
+              </div>
+            )}
           </div>
           
           {/* Sleek Tab Switcher */}
