@@ -175,9 +175,9 @@ router.get('/stats', async (req, res) => {
 });
 
 const mapHighlights = (list, nameKey, savingsKey, transKey, ratKey, labelPrefix = '') => {
-  const sortedSavings = [...list].sort((a, b) => getNestedVal(b, savingsKey) - getNestedVal(a, savingsKey)).slice(0, 10);
-  const sortedTrans = [...list].sort((a, b) => getNestedVal(b, transKey) - getNestedVal(a, transKey)).slice(0, 10);
-  const sortedRat = [...list].sort((a, b) => getNestedVal(b, ratKey) - getNestedVal(a, ratKey)).slice(0, 10);
+  const sortedSavings = [...list].sort((a, b) => getNestedVal(b, savingsKey) - getNestedVal(a, savingsKey));
+  const sortedTrans = [...list].sort((a, b) => getNestedVal(b, transKey) - getNestedVal(a, transKey));
+  const sortedRat = [...list].sort((a, b) => getNestedVal(b, ratKey) - getNestedVal(a, ratKey));
 
   return [
     {
