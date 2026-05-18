@@ -113,6 +113,7 @@ const Highlights = ({ highlights }) => {
                       <th>Desa</th>
                       <th>Nama Koperasi</th>
                       <th>{currentCategory === 'Penyelesaian RAT' ? 'Status RAT' : (currentCategory === 'Simpanan' ? 'Total Simpanan' : 'Total Transaksi')}</th>
+                      <th>Progres Gerai</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -122,6 +123,18 @@ const Highlights = ({ highlights }) => {
                         <td>{m.village}</td>
                         <td style={{ fontWeight: 500 }}>{m.koperasi}</td>
                         <td style={{ color: 'var(--primary)', fontWeight: 600 }}>{m.value}</td>
+                        <td>
+                          <span style={{ 
+                            padding: '0.2rem 0.5rem', 
+                            borderRadius: '4px', 
+                            fontSize: '0.75rem',
+                            background: m.progress === 'Belum pembangunan' ? 'rgba(231, 76, 60, 0.1)' : 'rgba(46, 204, 113, 0.1)',
+                            color: m.progress === 'Belum pembangunan' ? '#e74c3c' : '#27ae60',
+                            fontWeight: 500
+                          }}>
+                            {m.progress}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

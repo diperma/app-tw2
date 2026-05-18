@@ -22,6 +22,27 @@ const formatIDInt = (num) => {
   return Number(num).toLocaleString('id-ID');
 };
 
+const getStoreProgress = (storeReadiness) => {
+  if (!storeReadiness || !Array.isArray(storeReadiness)) return 'Belum pembangunan';
+
+  const mapping = {
+    'Total Pembangunan 100%': '100%',
+    'Total Pembangunan 76% - 99%': '76 - 99%',
+    'Total Pembangunan 51% - 75%': '51 - 75%',
+    'Total Pembangunan 21% - 50%': '21 - 50%',
+    'Total Pembangunan hingga 20%': '0 - 20%'
+  };
+
+  // Check from highest to lowest
+  const categories = Object.keys(mapping);
+  for (const cat of categories) {
+    const item = storeReadiness.find(s => s.label === cat);
+    if (item && item.value > 0) return mapping[cat];
+  }
+
+  return 'Belum pembangunan';
+};
+
 app.get('/api/provinces', async (req, res) => {
   try {
     const col = getCollection();
@@ -64,15 +85,17 @@ app.get('/api/stats', async (req, res) => {
 
     const data = await col.aggregate([
       { $match: match },
-      { $group: {
-        _id: null,
-        total_villages: { $sum: 1 },
-        total_simpanan: { $sum: '$savings_summary.total_amount' },
-        total_transaksi: { $sum: '$economic_impact.total_value' },
-        rat_submitted: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } },
-        has_npwp: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.npwp_count', 0] }, 1, 0] } },
-        has_nib: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.nib_count', 0] }, 1, 0] } }
-      }}
+      {
+        $group: {
+          _id: null,
+          total_villages: { $sum: 1 },
+          total_simpanan: { $sum: '$savings_summary.total_amount' },
+          total_transaksi: { $sum: '$economic_impact.total_value' },
+          rat_submitted: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } },
+          has_npwp: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.npwp_count', 0] }, 1, 0] } },
+          has_nib: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.nib_count', 0] }, 1, 0] } }
+        }
+      }
     ]).toArray();
 
     res.json(data[0] || { total_villages: 0, total_simpanan: 0, total_transaksi: 0, rat_submitted: 0, has_npwp: 0, has_nib: 0 });
@@ -96,8 +119,8 @@ app.get('/api/highlights', async (req, res) => {
 
       return res.json([
         { type: "Simpanan", icon: "Wallet", districts: savingsList.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.savings_total / 1000000)} Jt` })) },
-        { type: "Transaksi", icon: "ArrowUpRight", districts: transList.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.economic_impact_total / 1000000)} Jt` })).sort((a,b) => parseFloat(b.value.replace(/[^\d]/g,'')) - parseFloat(a.value.replace(/[^\d]/g,''))) },
-        { type: "Penyelesaian RAT", icon: "CheckCircle", districts: ratList.map(d => ({ name: d._id, province: d.province, value: `${formatIDInt(d.rat_total)} RAT` })).sort((a,b) => parseInt(b.value) - parseInt(a.value)) }
+        { type: "Transaksi", icon: "ArrowUpRight", districts: transList.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.economic_impact_total / 1000000)} Jt` })).sort((a, b) => parseFloat(b.value.replace(/[^\d]/g, '')) - parseFloat(a.value.replace(/[^\d]/g, ''))) },
+        { type: "Penyelesaian RAT", icon: "CheckCircle", districts: ratList.map(d => ({ name: d._id, province: d.province, value: `${formatIDInt(d.rat_total)} RAT` })).sort((a, b) => parseInt(b.value) - parseInt(a.value)) }
       ]);
     }
 
@@ -108,13 +131,15 @@ app.get('/api/highlights', async (req, res) => {
 
     const data = await col.aggregate([
       { $match: match },
-      { $group: {
-        _id: '$territorial_data.district',
-        province: { $first: '$territorial_data.province' },
-        savings_total: { $sum: '$savings_summary.total_amount' },
-        economic_impact_total: { $sum: '$economic_impact.total_value' },
-        rat_total: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } }
-      }},
+      {
+        $group: {
+          _id: '$territorial_data.district',
+          province: { $first: '$territorial_data.province' },
+          savings_total: { $sum: '$savings_summary.total_amount' },
+          economic_impact_total: { $sum: '$economic_impact.total_value' },
+          rat_total: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } }
+        }
+      },
       { $sort: { savings_total: -1 } }
     ]).toArray();
 
@@ -154,24 +179,30 @@ app.get('/api/charts', async (req, res) => {
 
     const results = await col.aggregate([
       { $match: match },
-      { $facet: {
-        rat: [
-          { $group: {
-            _id: null,
-            Verified: { $sum: '$rat_summary.total_verified_rat' },
-            Draft: { $sum: '$rat_summary.total_draft_rat' },
-            'Belum RAT': { $sum: '$rat_summary.total_no_rat' }
-          }}
-        ],
-        store: [
-          { $unwind: '$store_readiness' },
-          { $group: {
-            _id: '$store_readiness.label',
-            value: { $sum: '$store_readiness.value' }
-          }},
-          { $project: { label: '$_id', value: 1, _id: 0 } }
-        ]
-      }}
+      {
+        $facet: {
+          rat: [
+            {
+              $group: {
+                _id: null,
+                Verified: { $sum: '$rat_summary.total_verified_rat' },
+                Draft: { $sum: '$rat_summary.total_draft_rat' },
+                'Belum RAT': { $sum: '$rat_summary.total_no_rat' }
+              }
+            }
+          ],
+          store: [
+            { $unwind: '$store_readiness' },
+            {
+              $group: {
+                _id: '$store_readiness.label',
+                value: { $sum: '$store_readiness.value' }
+              }
+            },
+            { $project: { label: '$_id', value: 1, _id: 0 } }
+          ]
+        }
+      }
     ]).toArray();
 
     const data = results[0];
@@ -219,15 +250,17 @@ app.get('/api/regional-data', async (req, res) => {
 
     const data = await col.aggregate([
       { $match: match },
-      { $group: {
-        _id: groupKey,
-        total_koperasi: { $sum: 1 },
-        has_npwp: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.npwp_count', 0] }, 1, 0] } },
-        has_nib: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.nib_count', 0] }, 1, 0] } },
-        rat_verified: { $sum: '$rat_summary.total_verified_rat' },
-        total_simpanan: { $sum: '$savings_summary.total_amount' },
-        total_transaksi: { $sum: '$economic_impact.total_value' }
-      }},
+      {
+        $group: {
+          _id: groupKey,
+          total_koperasi: { $sum: 1 },
+          has_npwp: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.npwp_count', 0] }, 1, 0] } },
+          has_nib: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.nib_count', 0] }, 1, 0] } },
+          rat_verified: { $sum: '$rat_summary.total_verified_rat' },
+          total_simpanan: { $sum: '$savings_summary.total_amount' },
+          total_transaksi: { $sum: '$economic_impact.total_value' }
+        }
+      },
       { $sort: { total_simpanan: -1 } }
     ]).toArray();
 
@@ -266,16 +299,17 @@ app.get('/api/district-detail', async (req, res) => {
       .sort(sort)
       .limit(200)
       .toArray();
-    
+
     res.json(data.map(d => ({
       village: d.territorial_data.village,
       koperasi: `Koperasi Desa ${d.territorial_data.village}`,
-      value: type === 'Simpanan' 
+      value: type === 'Simpanan'
         ? `Rp${formatID(d.savings_summary.total_amount / 1000000)} Jt`
-        : (type === 'Transaksi' 
-            ? `Rp${formatID(d.economic_impact.total_value / 1000000)} Jt`
-            : (d.rat_summary.total_verified_rat > 0 ? 'Terverifikasi' : (d.rat_summary.total_draft_rat > 0 ? 'Draf' : 'Belum RAT'))),
-      status: d.rat_summary.total_verified_rat > 0 ? 'Verified' : 'Draft'
+        : (type === 'Transaksi'
+          ? `Rp${formatID(d.economic_impact.total_value / 1000000)} Jt`
+          : (d.rat_summary.total_verified_rat > 0 ? 'Terverifikasi' : (d.rat_summary.total_draft_rat > 0 ? 'Draf' : 'Belum RAT'))),
+      status: d.rat_summary.total_verified_rat > 0 ? 'Verified' : 'Draft',
+      progress: getStoreProgress(d.store_readiness)
     })));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -306,7 +340,8 @@ app.get('/api/export', async (req, res) => {
       { header: 'Status NPWP', key: 'npwp', width: 15 },
       { header: 'Status NIB', key: 'nib', width: 15 },
       { header: 'Pengajuan RAT', key: 'rat_draft', width: 15 },
-      { header: 'RAT Terverifikasi', key: 'rat_verified', width: 15 }
+      { header: 'RAT Terverifikasi', key: 'rat_verified', width: 15 },
+      { header: 'Progres Pembangunan Gerai', key: 'store_progress', width: 25 }
     ];
 
     data.forEach(d => {
@@ -321,7 +356,8 @@ app.get('/api/export', async (req, res) => {
         npwp: d.territorial_data.totals.npwp_count > 0 ? 'Y' : 'N',
         nib: d.territorial_data.totals.nib_count > 0 ? 'Y' : 'N',
         rat_draft: d.rat_summary.total_draft_rat,
-        rat_verified: d.rat_summary.total_verified_rat
+        rat_verified: d.rat_summary.total_verified_rat,
+        store_progress: getStoreProgress(d.store_readiness)
       });
     });
 

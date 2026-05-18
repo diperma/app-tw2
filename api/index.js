@@ -28,6 +28,27 @@ const formatIDInt = (num) => {
   return Number(num).toLocaleString('id-ID');
 };
 
+const getStoreProgress = (storeReadiness) => {
+  if (!storeReadiness || !Array.isArray(storeReadiness)) return 'Belum pembangunan';
+  
+  const mapping = {
+    'Total Pembangunan 100%': '100%',
+    'Total Pembangunan 76% - 99%': '76 - 99%',
+    'Total Pembangunan 51% - 75%': '51 - 75%',
+    'Total Pembangunan 21% - 50%': '21 - 50%',
+    'Total Pembangunan hingga 20%': '0 - 20%'
+  };
+
+  // Check from highest to lowest
+  const categories = Object.keys(mapping);
+  for (const cat of categories) {
+    const item = storeReadiness.find(s => s.label === cat);
+    if (item && item.value > 0) return mapping[cat];
+  }
+
+  return 'Belum pembangunan';
+};
+
 // Use a router to handle paths more flexibly
 const router = express.Router();
 
@@ -287,7 +308,8 @@ router.get('/district-detail', async (req, res) => {
         : (type === 'Transaksi' 
             ? `Rp${formatID(d.economic_impact.total_value / 1000000)} Jt`
             : (d.rat_summary.total_verified_rat > 0 ? 'Terverifikasi' : (d.rat_summary.total_draft_rat > 0 ? 'Draf' : 'Belum RAT'))),
-      status: d.rat_summary.total_verified_rat > 0 ? 'Verified' : 'Draft'
+      status: d.rat_summary.total_verified_rat > 0 ? 'Verified' : 'Draft',
+      progress: getStoreProgress(d.store_readiness)
     })));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -319,7 +341,8 @@ router.get('/export', async (req, res) => {
       { header: 'Status NPWP', key: 'npwp', width: 15 },
       { header: 'Status NIB', key: 'nib', width: 15 },
       { header: 'Pengajuan RAT', key: 'rat_draft', width: 15 },
-      { header: 'RAT Terverifikasi', key: 'rat_verified', width: 15 }
+      { header: 'RAT Terverifikasi', key: 'rat_verified', width: 15 },
+      { header: 'Progres Pembangunan Gerai', key: 'store_progress', width: 25 }
     ];
 
     data.forEach(d => {
@@ -334,7 +357,8 @@ router.get('/export', async (req, res) => {
         npwp: d.territorial_data.totals.npwp_count > 0 ? 'Y' : 'N',
         nib: d.territorial_data.totals.nib_count > 0 ? 'Y' : 'N',
         rat_draft: d.rat_summary.total_draft_rat,
-        rat_verified: d.rat_summary.total_verified_rat
+        rat_verified: d.rat_summary.total_verified_rat,
+        store_progress: getStoreProgress(d.store_readiness)
       });
     });
 
