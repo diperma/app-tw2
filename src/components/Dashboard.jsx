@@ -258,6 +258,18 @@ const Dashboard = () => {
       ) : (
         <CooperativeExplorer />
       )}
+      
+      {/* Global Footer */}
+      <footer style={{
+        textAlign: 'center',
+        padding: '2rem 0 1rem',
+        marginTop: '2rem',
+        fontSize: '0.85rem',
+        color: 'var(--text-muted)',
+        borderTop: '1px solid var(--border)'
+      }}>
+        © Tim Pengawasan APP KDKMP 2026
+      </footer>
     </div>
   );
 };
