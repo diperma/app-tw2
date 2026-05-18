@@ -1,32 +1,38 @@
-import React, { useState } from 'react';
-import { Wallet, ArrowUpRight, CheckCircle, X, Download } from 'lucide-react';
-import { fetchDistrictDetails, getExportUrl } from '../services/api';
+import React from 'react';
+import { Wallet, ArrowUpRight, CheckCircle } from 'lucide-react';
 
-const Highlights = ({ highlights }) => {
-  const [selectedDistrict, setSelectedDistrict] = useState(null);
-  const [modalData, setModalData] = useState([]);
-  const [loadingModal, setLoadingModal] = useState(false);
-  const [currentCategory, setCurrentCategory] = useState('');
-
+const Highlights = ({ 
+  highlights = [],
+  currentProvince = 'All',
+  currentDistrict = 'All',
+  onProvinceChange,
+  onDistrictChange,
+  onSubdistrictChange
+}) => {
   const icons = { Wallet, ArrowUpRight, CheckCircle };
 
-  const handleRowClick = (districtName, category) => {
-    setSelectedDistrict(districtName);
-    setCurrentCategory(category);
-    setLoadingModal(true);
-    fetchDistrictDetails(districtName, category).then(res => {
-      setModalData(res);
-      setLoadingModal(false);
-    });
-  };
-
-  const handleExportDetail = () => {
-    window.open(getExportUrl('All', selectedDistrict), '_blank');
-  };
-
-  const handleDownloadDistrict = (e, districtName, province) => {
-    e.stopPropagation();
-    window.open(getExportUrl(province || 'All', districtName), '_blank');
+  const handleRowClick = (item) => {
+    console.log('[HIGHLIGHTS] Row clicked!', item);
+    
+    if (currentProvince === 'All') {
+      // 1. National level -> Clicked item is a Province!
+      console.log('[HIGHLIGHTS] Filtering dashboard to Province:', item.name);
+      if (onProvinceChange) onProvinceChange(item.name);
+      if (onDistrictChange) onDistrictChange('All');
+      if (onSubdistrictChange) onSubdistrictChange('All');
+    } else if (currentDistrict === 'All') {
+      // 2. Province level -> Clicked item is a District!
+      console.log('[HIGHLIGHTS] Filtering dashboard to District:', item.name, 'in Province:', item.province);
+      if (onProvinceChange) onProvinceChange(item.province || currentProvince);
+      if (onDistrictChange) onDistrictChange(item.name);
+      if (onSubdistrictChange) onSubdistrictChange('All');
+    } else {
+      // 3. District level -> Clicked item is a Subdistrict!
+      console.log('[HIGHLIGHTS] Filtering dashboard to Subdistrict:', item.name, 'in District:', currentDistrict);
+      if (onProvinceChange) onProvinceChange(currentProvince);
+      if (onDistrictChange) onDistrictChange(currentDistrict);
+      if (onSubdistrictChange) onSubdistrictChange(item.name);
+    }
   };
 
   return (
@@ -34,44 +40,38 @@ const Highlights = ({ highlights }) => {
       {highlights.map((group, i) => {
         const Icon = icons[group.icon] || Wallet;
         return (
-          <div key={i} className="glass-card" style={{ padding: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginBottom: '1rem' }}>
-              <div style={{ padding: '0.5rem', background: 'rgba(45, 106, 79, 0.1)', borderRadius: '8px' }}>
-                <Icon size={18} color="var(--primary)" />
+          <div key={i} className="glass-card" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', height: '380px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.8rem' }}>
+              <div style={{ padding: '0.4rem', background: 'var(--primary-glow)', border: '1px solid var(--border)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon size={16} color="var(--primary)" />
               </div>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>{group.type} Teratas</h3>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{group.type} Teratas</h3>
             </div>
             
-            <div className="table-container" style={{ marginTop: 0, maxHeight: '400px', overflowY: 'auto' }}>
+            <div className="table-container" style={{ marginTop: 0, overflowY: 'auto', flex: 1 }}>
               <table style={{ fontSize: '0.85rem' }}>
                 <thead>
                   <tr>
-                    <th style={{ padding: '0.5rem' }}>#</th>
-                    <th style={{ padding: '0.5rem' }}>Kabupaten</th>
-                    <th style={{ padding: '0.5rem' }}>Nilai</th>
-                    <th style={{ padding: '0.5rem', textAlign: 'center' }}>Aksi</th>
+                    <th style={{ padding: '0.6rem', width: '30px' }}>#</th>
+                    <th style={{ padding: '0.6rem' }}>Wilayah</th>
+                    <th style={{ padding: '0.6rem' }}>Nilai</th>
                   </tr>
                 </thead>
                 <tbody>
                   {group.districts.map((d, idx) => (
                     <tr 
                       key={idx} 
-                      onClick={() => handleRowClick(d.name, group.type)} 
+                      onClick={() => handleRowClick(d)} 
                       style={{ cursor: 'pointer' }}
                     >
-                      <td style={{ padding: '0.5rem' }}>{idx + 1}</td>
-                      <td style={{ padding: '0.5rem', fontWeight: 500 }}>{d.name}</td>
-                      <td style={{ padding: '0.5rem', color: 'var(--primary)', fontWeight: 600 }}>{d.value}</td>
-                      <td style={{ padding: '0.5rem', textAlign: 'center' }}>
-                        <button 
-                          className="btn-ghost"
-                          title="Download Data Kabupaten"
-                          onClick={(e) => handleDownloadDistrict(e, d.name, d.province)}
-                          style={{ padding: '0.3rem', borderRadius: '4px' }}
-                        >
-                          <Download size={14} color="var(--primary)" />
-                        </button>
+                      <td style={{ padding: '0.6rem' }}>{idx + 1}</td>
+                      <td style={{ padding: '0.6rem', fontWeight: 600, color: 'var(--secondary)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span>{d.name}</span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>{d.province}</span>
+                        </div>
                       </td>
+                      <td style={{ padding: '0.6rem', color: 'var(--primary)', fontWeight: 700 }}>{d.value}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -80,70 +80,6 @@ const Highlights = ({ highlights }) => {
           </div>
         );
       })}
-
-      {selectedDistrict && (
-        <div className="modal-overlay" onClick={() => setSelectedDistrict(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <button className="close-modal" onClick={() => setSelectedDistrict(null)}>
-              <X size={20} />
-            </button>
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-              <div>
-                <h2 style={{ fontSize: '1.3rem', marginBottom: '0.2rem' }}>Detail Performa: {selectedDistrict}</h2>
-                <p style={{ color: 'var(--text-muted)' }}>Kategori: {currentCategory} Teratas</p>
-              </div>
-              <button 
-                className="btn-primary" 
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}
-                onClick={handleExportDetail}
-              >
-                <Download size={16} /> Ekspor Detail
-              </button>
-            </div>
-            
-            {loadingModal ? (
-              <p>Memuat detail...</p>
-            ) : (
-              <div className="table-container" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Desa</th>
-                      <th>Nama Koperasi</th>
-                      <th>{currentCategory === 'Penyelesaian RAT' ? 'Status RAT' : (currentCategory === 'Simpanan' ? 'Total Simpanan' : 'Total Transaksi')}</th>
-                      <th>Progres Gerai</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {modalData.map((m, idx) => (
-                      <tr key={idx}>
-                        <td>{idx + 1}</td>
-                        <td>{m.village}</td>
-                        <td style={{ fontWeight: 500 }}>{m.koperasi}</td>
-                        <td style={{ color: 'var(--primary)', fontWeight: 600 }}>{m.value}</td>
-                        <td>
-                          <span style={{ 
-                            padding: '0.2rem 0.5rem', 
-                            borderRadius: '4px', 
-                            fontSize: '0.75rem',
-                            background: m.progress === 'Belum pembangunan' ? 'rgba(231, 76, 60, 0.1)' : 'rgba(46, 204, 113, 0.1)',
-                            color: m.progress === 'Belum pembangunan' ? '#e74c3c' : '#27ae60',
-                            fontWeight: 500
-                          }}>
-                            {m.progress}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

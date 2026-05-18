@@ -2,16 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import ExcelJS from 'exceljs';
 import dotenv from 'dotenv';
-import { connectDb, getCollection } from '../server/db.js';
+import crypto from 'crypto';
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Robust CORS configuration
 app.use(cors({
-  origin: '*', // Allow all during debugging
+  origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
@@ -28,36 +27,71 @@ const formatIDInt = (num) => {
   return Number(num).toLocaleString('id-ID');
 };
 
-const getStoreProgress = (storeReadiness) => {
-  if (!storeReadiness || !Array.isArray(storeReadiness)) return 'Belum pembangunan';
-  
-  const mapping = {
-    'Total Pembangunan 100%': '100%',
-    'Total Pembangunan 76% - 99%': '76 - 99%',
-    'Total Pembangunan 51% - 75%': '51 - 75%',
-    'Total Pembangunan 21% - 50%': '21 - 50%',
-    'Total Pembangunan hingga 20%': '0 - 20%'
-  };
-
-  // Check from highest to lowest
-  const categories = Object.keys(mapping);
-  for (const cat of categories) {
-    const item = storeReadiness.find(s => s.label === cat);
-    if (item && item.value > 0) return mapping[cat];
-  }
-
-  return 'Belum pembangunan';
+const normalizeName = (name) => {
+  if (!name) return '';
+  return name.toUpperCase()
+    .replace(/^KAB\.\s+/, '')
+    .replace(/^KOTA\s+/, '')
+    .replace(/^KABUPATEN\s+/, '')
+    .replace(/^KEC\.\s+/, '')
+    .replace(/^KECAMATAN\s+/, '')
+    .trim();
 };
 
-// Use a router to handle paths more flexibly
+const fetchJSON = async (url) => {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`API returned status ${res.status} for URL: ${url}`);
+  }
+  return res.json();
+};
+
+const getNestedVal = (obj, path) => {
+  return path.split('.').reduce((acc, part) => acc && acc[part] !== undefined ? acc[part] : 0, obj);
+};
+
+// Cash-in-memory for provinces list to minimize overhead
+let provincesCache = null;
+const getProvinces = async () => {
+  if (!provincesCache) {
+    try {
+      const res = await fetchJSON('https://api.simkopdes.go.id/api/provinces');
+      provincesCache = res.data || [];
+    } catch (e) {
+      console.error('Failed to load provinces:', e.message);
+      return [];
+    }
+  }
+  return provincesCache;
+};
+
+const resolveProvince = async (name) => {
+  const provinces = await getProvinces();
+  return provinces.find(p => normalizeName(p.name) === normalizeName(name));
+};
+
+const resolveDistrict = async (provinceName, districtName) => {
+  const prov = await resolveProvince(provinceName);
+  if (!prov) return null;
+  const provData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
+  const distList = provData.territorial_data?.districts || [];
+  return distList.find(d => normalizeName(d.district) === normalizeName(districtName));
+};
+
+const resolveSubdistrict = async (provinceName, districtName, subdistrictName) => {
+  const dist = await resolveDistrict(provinceName, districtName);
+  if (!dist) return null;
+  const distData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
+  const subList = distData.territorial_data?.subdistricts || [];
+  return subList.find(s => normalizeName(s.subdistrict) === normalizeName(subdistrictName));
+};
+
 const router = express.Router();
 
 router.get('/provinces', async (req, res) => {
   try {
-    await connectDb();
-    const col = getCollection();
-    const data = await col.distinct('territorial_data.province');
-    res.json(data.filter(Boolean).sort());
+    const data = await getProvinces();
+    res.json(data.map(p => p.name).sort());
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -66,103 +100,135 @@ router.get('/provinces', async (req, res) => {
 router.get('/districts', async (req, res) => {
   const { province } = req.query;
   try {
-    await connectDb();
-    const col = getCollection();
-    const query = {};
-    if (province && province !== 'All') query['territorial_data.province'] = province;
-    const data = await col.distinct('territorial_data.district', query);
-    res.json(data.filter(Boolean).sort());
+    if (!province || province === 'All') return res.json([]);
+    const prov = await resolveProvince(province);
+    if (!prov) return res.json([]);
+    const data = await fetchJSON(`https://api.simkopdes.go.id/api/districts/by-province-code/${prov.code}`);
+    res.json((data.data || []).map(d => d.name).sort());
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
+
+router.get('/subdistricts', async (req, res) => {
+  const { province, district } = req.query;
+  try {
+    if (!province || province === 'All' || !district || district === 'All') return res.json([]);
+    const dist = await resolveDistrict(province, district);
+    if (!dist) return res.json([]);
+    const data = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
+    res.json((data.territorial_data?.subdistricts || []).map(s => s.subdistrict).sort());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 router.get('/stats', async (req, res) => {
   const { province = 'All', district = 'All' } = req.query;
   try {
-    const db = await connectDb();
-    const summaryCol = db.collection('summaries');
-    const summary = await summaryCol.findOne({ province, district });
-
-    if (summary) {
-      return res.json(summary.stats);
+    if (province === 'All') {
+      const coop = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026');
+      const econ = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/economic-impact-rat?period=2026');
+      const total_simpanan = (coop.nested_data?.grouped || []).reduce((sum, item) => sum + (item.savings_summary?.total_amount || 0), 0);
+      
+      return res.json({
+        total_villages: coop.cooperative_stats?.total || 0,
+        total_simpanan: total_simpanan,
+        total_transaksi: econ.economic_impact?.total_value || 0,
+        rat_submitted: (econ.rat_summary?.total_verified_rat || 0) + (econ.rat_summary?.total_draft_rat || 0),
+        has_npwp: coop.cooperative_stats?.total_with_npwp || 0,
+        has_nib: coop.cooperative_stats?.total_with_nib || 0
+      });
     }
 
-    const col = getCollection();
-    const match = {};
-    if (province !== 'All') match['territorial_data.province'] = province;
-    if (district !== 'All') match['territorial_data.district'] = district;
+    if (district === 'All') {
+      const prov = await resolveProvince(province);
+      if (!prov) return res.status(404).json({ error: 'Province not found' });
+      const pData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
+      
+      return res.json({
+        total_villages: pData.territorial_data?.totals?.count || 0,
+        total_simpanan: pData.savings_summary?.total_amount || 0,
+        total_transaksi: pData.economic_impact?.total_value || pData.territorial_data?.totals?.transaction_value || 0,
+        rat_submitted: (pData.rat_summary?.total_verified_rat || 0) + (pData.rat_summary?.total_draft_rat || 0),
+        has_npwp: pData.territorial_data?.totals?.npwp_count || 0,
+        has_nib: pData.territorial_data?.totals?.nib_count || 0
+      });
+    }
 
-    const data = await col.aggregate([
-      { $match: match },
-      { $group: {
-        _id: null,
-        total_villages: { $sum: 1 },
-        total_simpanan: { $sum: '$savings_summary.total_amount' },
-        total_transaksi: { $sum: '$economic_impact.total_value' },
-        rat_submitted: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } },
-        has_npwp: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.npwp_count', 0] }, 1, 0] } },
-        has_nib: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.nib_count', 0] }, 1, 0] } }
-      }}
-    ]).toArray();
+    const dist = await resolveDistrict(province, district);
+    if (!dist) return res.status(404).json({ error: 'District not found' });
+    const dData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
 
-    res.json(data[0] || { total_villages: 0, total_simpanan: 0, total_transaksi: 0, rat_submitted: 0, has_npwp: 0, has_nib: 0 });
+    res.json({
+      total_villages: dData.territorial_data?.totals?.count || 0,
+      total_simpanan: dData.savings_summary?.total_amount || 0,
+      total_transaksi: dData.economic_impact?.total_value || dData.territorial_data?.totals?.transaction_value || 0,
+      rat_submitted: (dData.rat_summary?.total_verified_rat || 0) + (dData.rat_summary?.total_draft_rat || 0),
+      has_npwp: dData.territorial_data?.totals?.npwp_count || 0,
+      has_nib: dData.territorial_data?.totals?.nib_count || 0
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
+const mapHighlights = (list, nameKey, savingsKey, transKey, ratKey, labelPrefix = '') => {
+  const sortedSavings = [...list].sort((a, b) => getNestedVal(b, savingsKey) - getNestedVal(a, savingsKey)).slice(0, 10);
+  const sortedTrans = [...list].sort((a, b) => getNestedVal(b, transKey) - getNestedVal(a, transKey)).slice(0, 10);
+  const sortedRat = [...list].sort((a, b) => getNestedVal(b, ratKey) - getNestedVal(a, ratKey)).slice(0, 10);
+
+  return [
+    {
+      type: "Simpanan",
+      icon: "Wallet",
+      districts: sortedSavings.map(d => ({
+        name: d[nameKey],
+        province: d.province || labelPrefix || '',
+        value: `Rp${formatID(getNestedVal(d, savingsKey) / 1000000)} Jt`
+      }))
+    },
+    {
+      type: "Transaksi",
+      icon: "ArrowUpRight",
+      districts: sortedTrans.map(d => ({
+        name: d[nameKey],
+        province: d.province || labelPrefix || '',
+        value: `Rp${formatID(getNestedVal(d, transKey) / 1000000)} Jt`
+      }))
+    },
+    {
+      type: "Penyelesaian RAT",
+      icon: "CheckCircle",
+      districts: sortedRat.map(d => ({
+        name: d[nameKey],
+        province: d.province || labelPrefix || '',
+        value: `${formatIDInt(getNestedVal(d, ratKey))} RAT`
+      }))
+    }
+  ];
+};
+
 router.get('/highlights', async (req, res) => {
   const { province = 'All', district = 'All' } = req.query;
   try {
-    const db = await connectDb();
-    const summaryCol = db.collection('summaries');
-    const summary = await summaryCol.findOne({ province, district });
-
-    if (summary) {
-      const h = summary.highlights;
-      // Handle new structure (object with categories) or old structure (array)
-      const savingsList = Array.isArray(h) ? h : (h.savings || []);
-      const transList = Array.isArray(h) ? h : (h.transactions || []);
-      const ratList = Array.isArray(h) ? h : (h.rat || []);
-
-      return res.json([
-        { type: "Simpanan", icon: "Wallet", districts: savingsList.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.savings_total / 1000000)} Jt` })) },
-        { type: "Transaksi", icon: "ArrowUpRight", districts: transList.map(d => ({ name: d._id, province: d.province, value: `Rp${formatID(d.economic_impact_total / 1000000)} Jt` })).sort((a,b) => parseFloat(b.value.replace(/[^\d]/g,'')) - parseFloat(a.value.replace(/[^\d]/g,''))) },
-        { type: "Penyelesaian RAT", icon: "CheckCircle", districts: ratList.map(d => ({ name: d._id, province: d.province, value: `${formatIDInt(d.rat_total)} RAT` })).sort((a,b) => parseInt(b.value) - parseInt(a.value)) }
-      ]);
+    if (province === 'All') {
+      const coop = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026');
+      return res.json(mapHighlights(coop.nested_data?.grouped || [], 'province', 'savings_summary.total_amount', 'transaction_value', 'rat_count', ''));
     }
 
-    const col = getCollection();
-    const match = {};
-    if (province !== 'All') match['territorial_data.province'] = province;
-    if (district !== 'All') match['territorial_data.district'] = district;
+    if (district === 'All') {
+      const prov = await resolveProvince(province);
+      if (!prov) return res.status(404).json({ error: 'Province not found' });
+      const pData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
+      return res.json(mapHighlights(pData.territorial_data?.districts || [], 'district', 'savings_summary.total_amount', 'transaction_value', 'rat_count', prov.name));
+    }
 
-    const data = await col.aggregate([
-      { $match: match },
-      { $group: {
-        _id: '$territorial_data.district',
-        province: { $first: '$territorial_data.province' },
-        savings_total: { $sum: '$savings_summary.total_amount' },
-        economic_impact_total: { $sum: '$economic_impact.total_value' },
-        rat_total: { $sum: { $add: ['$rat_summary.total_verified_rat', '$rat_summary.total_draft_rat'] } }
-      }},
-      { $sort: { savings_total: -1 } }
-    ]).toArray();
-
-    const group = (arr, valKey) => {
-      return arr.map(d => ({ name: d._id, province: d.province, value: d[valKey] })).sort((a, b) => b.value - a.value);
-    };
-
-    const savings = group(data, 'savings_total');
-    const transactions = group(data, 'economic_impact_total');
-    const ratSorted = group(data, 'rat_total');
-
-    res.json([
-      { type: "Simpanan", icon: "Wallet", districts: savings.slice(0, 10).map(d => ({ name: d.name, province: d.province, value: `Rp${formatID(d.value / 1000000)} Jt` })) },
-      { type: "Transaksi", icon: "ArrowUpRight", districts: transactions.slice(0, 10).map(d => ({ name: d.name, province: d.province, value: `Rp${formatID(d.value / 1000000)} Jt` })) },
-      { type: "Penyelesaian RAT", icon: "CheckCircle", districts: ratSorted.slice(0, 10).map(d => ({ name: d.name, province: d.province, value: `${formatIDInt(d.value)} RAT` })) }
-    ]);
+    const dist = await resolveDistrict(province, district);
+    if (!dist) return res.status(404).json({ error: 'District not found' });
+    const dData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
+    return res.json(mapHighlights(dData.territorial_data?.subdistricts || [], 'subdistrict', 'savings_summary.total_amount', 'transaction_value', 'rat_count', dist.district));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -171,45 +237,43 @@ router.get('/highlights', async (req, res) => {
 router.get('/charts', async (req, res) => {
   const { province = 'All', district = 'All' } = req.query;
   try {
-    const db = await connectDb();
-    const summaryCol = db.collection('summaries');
-    const summary = await summaryCol.findOne({ province, district });
-
-    if (summary) {
-      return res.json(summary.charts);
+    if (province === 'All') {
+      const coop = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026');
+      const econ = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/economic-impact-rat?period=2026');
+      return res.json({
+        store: coop.store_readiness || [],
+        rat: {
+          Verified: econ.rat_summary?.total_verified_rat || 0,
+          Draft: econ.rat_summary?.total_draft_rat || 0,
+          'Belum RAT': econ.rat_summary?.total_no_rat || 0
+        }
+      });
     }
 
-    const col = getCollection();
-    const match = {};
-    if (province !== 'All') match['territorial_data.province'] = province;
-    if (district !== 'All') match['territorial_data.district'] = district;
+    if (district === 'All') {
+      const prov = await resolveProvince(province);
+      if (!prov) return res.status(404).json({ error: 'Province not found' });
+      const pData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
+      return res.json({
+        store: pData.store_readiness || [],
+        rat: {
+          Verified: pData.rat_summary?.total_verified_rat || 0,
+          Draft: pData.rat_summary?.total_draft_rat || 0,
+          'Belum RAT': pData.rat_summary?.total_no_rat || 0
+        }
+      });
+    }
 
-    const results = await col.aggregate([
-      { $match: match },
-      { $facet: {
-        rat: [
-          { $group: {
-            _id: null,
-            Verified: { $sum: '$rat_summary.total_verified_rat' },
-            Draft: { $sum: '$rat_summary.total_draft_rat' },
-            'Belum RAT': { $sum: '$rat_summary.total_no_rat' }
-          }}
-        ],
-        store: [
-          { $unwind: '$store_readiness' },
-          { $group: {
-            _id: '$store_readiness.label',
-            value: { $sum: '$store_readiness.value' }
-          }},
-          { $project: { label: '$_id', value: 1, _id: 0 } }
-        ]
-      }}
-    ]).toArray();
-
-    const data = results[0];
+    const dist = await resolveDistrict(province, district);
+    if (!dist) return res.status(404).json({ error: 'District not found' });
+    const dData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
     res.json({
-      store: data.store || [],
-      rat: data.rat[0] || { Verified: 0, Draft: 0, 'Belum RAT': 0 }
+      store: dData.store_readiness || [],
+      rat: {
+        Verified: dData.rat_summary?.total_verified_rat || 0,
+        Draft: dData.rat_summary?.total_draft_rat || 0,
+        'Belum RAT': dData.rat_summary?.total_no_rat || 0
+      }
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -217,103 +281,182 @@ router.get('/charts', async (req, res) => {
 });
 
 router.get('/regional-data', async (req, res) => {
-  const { province = 'All', district = 'All' } = req.query;
+  const { province = 'All', district = 'All', subdistrict = 'All' } = req.query;
   try {
-    const db = await connectDb();
-    const summaryCol = db.collection('summaries');
-    const summary = await summaryCol.findOne({ province, district });
+    let rawList = [];
 
-    if (summary && summary.regional) {
-      return res.json(summary.regional.map((d, i) => ({
-        id: i,
-        name: d._id,
-        total_koperasi: d.total_koperasi,
-        has_npwp: d.has_npwp,
-        has_nib: d.has_nib,
-        rat_verified: d.rat_verified,
-        total_simpanan: d.total_simpanan,
-        total_transaksi: d.total_transaksi,
-        total_koperasi_fmt: formatIDInt(d.total_koperasi),
-        has_npwp_fmt: formatIDInt(d.has_npwp),
-        has_nib_fmt: formatIDInt(d.has_nib),
-        rat_verified_fmt: formatIDInt(d.rat_verified),
-        total_simpanan_fmt: `Rp${formatID(d.total_simpanan / 1000000)} Jt`,
-        total_transaksi_fmt: `Rp${formatID(d.total_transaksi / 1000000)} Jt`
-      })));
+    if (province === 'All') {
+      const coop = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026');
+      rawList = (coop.nested_data?.grouped || []).map(item => ({
+        id: item.province_id,
+        name: item.province,
+        total_koperasi: item.count,
+        has_npwp: item.npwp_count,
+        has_nib: item.nib_count,
+        rat_verified: item.rat_count,
+        total_simpanan: item.savings_summary?.total_amount || 0,
+        total_transaksi: item.transaction_value || 0
+      }));
+    } else if (district === 'All') {
+      const prov = await resolveProvince(province);
+      if (!prov) return res.json([]);
+      const pData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
+      rawList = (pData.territorial_data?.districts || []).map(item => ({
+        id: item.district_id,
+        name: item.district,
+        total_koperasi: item.count,
+        has_npwp: item.npwp_count,
+        has_nib: item.nib_count,
+        rat_verified: item.rat_count,
+        total_simpanan: item.savings_summary?.total_amount || 0,
+        total_transaksi: item.transaction_value || 0
+      }));
+    } else if (subdistrict === 'All') {
+      const dist = await resolveDistrict(province, district);
+      if (!dist) return res.json([]);
+      const dData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
+      rawList = (dData.territorial_data?.subdistricts || []).map(item => ({
+        id: item.subdistrict_id,
+        name: item.subdistrict,
+        total_koperasi: item.count,
+        has_npwp: item.npwp_count,
+        has_nib: item.nib_count,
+        rat_verified: item.rat_count,
+        total_simpanan: item.savings_summary?.total_amount || 0,
+        total_transaksi: item.transaction_value || 0
+      }));
+    } else {
+      const sub = await resolveSubdistrict(province, district, subdistrict);
+      if (!sub) return res.json([]);
+      const sData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${sub.subdistrict_id}?period=2026`);
+      const villages = sData.territorial_data?.villages || [];
+
+      // Helper function to resolve the survey buckets
+      const getStoreProgressPercent = (storeReadiness) => {
+        if (!storeReadiness || !Array.isArray(storeReadiness)) return 0;
+        const mapping = {
+          'Total Pembangunan 100%': 100,
+          'Total Pembangunan 76% - 99%': 85,
+          'Total Pembangunan 51% - 75%': 65,
+          'Total Pembangunan 21% - 50%': 35,
+          'Total Pembangunan hingga 20%': 15
+        };
+        for (const key of Object.keys(mapping)) {
+          const item = storeReadiness.find(s => s.label === key);
+          if (item && item.value > 0) return mapping[key];
+        }
+        return 0;
+      };
+
+      // Fetch all village details in parallel from api.merahputih.kop.id
+      const villageDetails = await Promise.all(
+        villages.map(v => 
+          fetchJSON(`https://api.merahputih.kop.id/api/statistics/national-readiness/village/${v.village_id}?period=2026`)
+            .catch(() => null)
+        )
+      );
+
+      rawList = villages.map((item, idx) => {
+        const vDetail = villageDetails[idx];
+        const storeProgress = vDetail ? getStoreProgressPercent(vDetail.store_readiness) : 0;
+        
+        return {
+          id: item.village_id,
+          name: item.village,
+          total_koperasi: item.count,
+          has_npwp: item.npwp_count,
+          has_nib: item.nib_count,
+          rat_verified: item.rat_count,
+          total_simpanan: item.savings_summary?.total_amount || 0,
+          total_transaksi: item.transaction_value || 0,
+          accounts_count: storeProgress
+        };
+      });
     }
 
-    const col = getCollection();
-    const match = {};
-    if (province !== 'All') match['territorial_data.province'] = province;
-    if (district !== 'All') match['territorial_data.district'] = district;
-
-    const groupKey = (district !== 'All') ? '$territorial_data.subdistrict' : (province !== 'All') ? '$territorial_data.district' : '$territorial_data.province';
-
-    const data = await col.aggregate([
-      { $match: match },
-      { $group: {
-        _id: groupKey,
-        total_koperasi: { $sum: 1 },
-        has_npwp: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.npwp_count', 0] }, 1, 0] } },
-        has_nib: { $sum: { $cond: [{ $gt: ['$territorial_data.totals.nib_count', 0] }, 1, 0] } },
-        rat_verified: { $sum: '$rat_summary.total_verified_rat' },
-        total_simpanan: { $sum: '$savings_summary.total_amount' },
-        total_transaksi: { $sum: '$economic_impact.total_value' }
-      }},
-      { $sort: { total_simpanan: -1 } }
-    ]).toArray();
-
-    res.json(data.map((d, i) => ({
-      id: i,
-      name: d._id,
+    const response = rawList.map((d, i) => ({
+      id: d.id || i,
+      name: d.name,
       total_koperasi: d.total_koperasi,
       has_npwp: d.has_npwp,
       has_nib: d.has_nib,
       rat_verified: d.rat_verified,
       total_simpanan: d.total_simpanan,
       total_transaksi: d.total_transaksi,
+      accounts_count: d.accounts_count || 0,
       total_koperasi_fmt: formatIDInt(d.total_koperasi),
       has_npwp_fmt: formatIDInt(d.has_npwp),
       has_nib_fmt: formatIDInt(d.has_nib),
       rat_verified_fmt: formatIDInt(d.rat_verified),
       total_simpanan_fmt: `Rp${formatID(d.total_simpanan / 1000000)} Jt`,
       total_transaksi_fmt: `Rp${formatID(d.total_transaksi / 1000000)} Jt`
-    })));
+    }));
+
+    res.json(response);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
 router.get('/district-detail', async (req, res) => {
-  const { district, type } = req.query;
+  const { province = 'All', district, type } = req.query;
   try {
-    await connectDb();
-    const col = getCollection();
-    const sort = {};
-    if (type === 'Simpanan') sort['savings_summary.total_amount'] = -1;
-    else if (type === 'Transaksi') sort['economic_impact.total_value'] = -1;
-    else if (type === 'Penyelesaian RAT') {
-      sort['rat_summary.total_verified_rat'] = -1;
-      sort['rat_summary.total_draft_rat'] = -1;
-    }
-    else sort['territorial_data.village'] = 1;
-
-    const data = await col.find({ 'territorial_data.district': district })
-      .sort(sort)
-      .limit(200)
-      .toArray();
+    if (!district) return res.json([]);
+    const dist = await resolveDistrict(province, district);
+    if (!dist) return res.json([]);
     
-    res.json(data.map(d => ({
-      village: d.territorial_data.village,
-      koperasi: `Koperasi Desa ${d.territorial_data.village}`,
-      value: type === 'Simpanan' 
-        ? `Rp${formatID(d.savings_summary.total_amount / 1000000)} Jt`
-        : (type === 'Transaksi' 
-            ? `Rp${formatID(d.economic_impact.total_value / 1000000)} Jt`
-            : (d.rat_summary.total_verified_rat > 0 ? 'Terverifikasi' : (d.rat_summary.total_draft_rat > 0 ? 'Draf' : 'Belum RAT'))),
-      status: d.rat_summary.total_verified_rat > 0 ? 'Verified' : 'Draft',
-      progress: getStoreProgress(d.store_readiness)
-    })));
+    const distData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
+    const subdistricts = distData.territorial_data?.subdistricts || [];
+
+    // Fetch all subdistricts' villages in parallel
+    const subdistDetailList = await Promise.all(
+      subdistricts.map(s => 
+        fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${s.subdistrict_id}?period=2026`)
+          .catch(() => null)
+      )
+    );
+
+    let allVillages = [];
+    for (const sData of subdistDetailList) {
+      if (sData && sData.territorial_data?.villages) {
+        allVillages.push(...sData.territorial_data.villages);
+      }
+    }
+
+    if (type === 'Simpanan') {
+      allVillages.sort((a, b) => (b.savings_summary?.total_amount || 0) - (a.savings_summary?.total_amount || 0));
+    } else if (type === 'Transaksi') {
+      allVillages.sort((a, b) => (b.transaction_value || 0) - (a.transaction_value || 0));
+    } else {
+      allVillages.sort((a, b) => (b.rat_count || 0) - (a.rat_count || 0));
+    }
+
+    const response = allVillages.slice(0, 200).map(v => ({
+      village: v.village,
+      village_id: v.village_id,
+      koperasi: `Koperasi Desa ${v.village}`,
+      value: type === 'Simpanan'
+        ? `Rp${formatID((v.savings_summary?.total_amount || 0) / 1000000)} Jt`
+        : (type === 'Transaksi'
+          ? `Rp${formatID((v.transaction_value || 0) / 1000000)} Jt`
+          : (v.rat_count > 0 ? 'Terverifikasi' : 'Belum RAT')),
+      status: v.rat_count > 0 ? 'Verified' : 'Draft',
+      progress: v.accounts_count > 0 ? '100%' : 'Belum pembangunan'
+    }));
+
+    res.json(response);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Single Village Lookup Route for Drawer Tool
+router.get('/village-detail', async (req, res) => {
+  const { id } = req.query;
+  try {
+    if (!id) return res.status(400).json({ error: 'Village ID is required' });
+    const data = await fetchJSON(`https://api.merahputih.kop.id/api/statistics/national-readiness/village/${id}?period=2026`);
+    res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -322,14 +465,58 @@ router.get('/district-detail', async (req, res) => {
 router.get('/export', async (req, res) => {
   const { province, district, subdistrict } = req.query;
   try {
-    await connectDb();
-    const col = getCollection();
-    const match = {};
-    if (province && province !== 'All') match['territorial_data.province'] = province;
-    if (district && district !== 'All') match['territorial_data.district'] = district;
-    if (subdistrict && subdistrict !== 'All') match['territorial_data.subdistrict'] = subdistrict;
+    let villagesList = [];
+    let pName = province || 'All';
+    let dName = district || 'All';
+    let sName = subdistrict || 'All';
 
-    const data = await col.find(match).toArray();
+    if (sName !== 'All') {
+      const sub = await resolveSubdistrict(pName, dName, sName);
+      if (sub) {
+        const sData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${sub.subdistrict_id}?period=2026`);
+        villagesList = (sData.territorial_data?.villages || []).map(v => ({
+          province: pName,
+          district: dName,
+          subdistrict: sName,
+          village: v.village,
+          koperasi: `Koperasi Desa ${v.village}`,
+          savings: v.savings_summary?.total_amount || 0,
+          transactions: v.transaction_value || 0,
+          npwp: v.npwp_count > 0 ? 'Y' : 'N',
+          nib: v.nib_count > 0 ? 'Y' : 'N',
+          rat_draft: 0,
+          rat_verified: v.rat_count || 0,
+          store_progress: v.accounts_count > 0 ? '100%' : 'Belum pembangunan'
+        }));
+      }
+    } else if (dName !== 'All') {
+      const dist = await resolveDistrict(pName, dName);
+      if (dist) {
+        const distData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
+        const subdistricts = distData.territorial_data?.subdistricts || [];
+        const subDetailList = await Promise.all(
+          subdistricts.map(s => fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${s.subdistrict_id}?period=2026`).catch(() => null))
+        );
+        for (const sData of subDetailList) {
+          if (sData && sData.territorial_data?.villages) {
+            villagesList.push(...sData.territorial_data.villages.map(v => ({
+              province: pName,
+              district: dName,
+              subdistrict: sData.territorial_data.subdistrict,
+              village: v.village,
+              koperasi: `Koperasi Desa ${v.village}`,
+              savings: v.savings_summary?.total_amount || 0,
+              transactions: v.transaction_value || 0,
+              npwp: v.npwp_count > 0 ? 'Y' : 'N',
+              nib: v.nib_count > 0 ? 'Y' : 'N',
+              rat_draft: 0,
+              rat_verified: v.rat_count || 0,
+              store_progress: v.accounts_count > 0 ? '100%' : 'Belum pembangunan'
+            })));
+          }
+        }
+      }
+    }
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Village Readiness');
@@ -348,25 +535,10 @@ router.get('/export', async (req, res) => {
       { header: 'Progres Pembangunan Gerai', key: 'store_progress', width: 25 }
     ];
 
-    data.forEach(d => {
-      worksheet.addRow({
-        province: d.territorial_data.province,
-        district: d.territorial_data.district,
-        subdistrict: d.territorial_data.subdistrict,
-        village: d.territorial_data.village,
-        koperasi: `Koperasi Desa ${d.territorial_data.village}`,
-        savings: d.savings_summary.total_amount,
-        transactions: d.economic_impact.total_value,
-        npwp: d.territorial_data.totals.npwp_count > 0 ? 'Y' : 'N',
-        nib: d.territorial_data.totals.nib_count > 0 ? 'Y' : 'N',
-        rat_draft: d.rat_summary.total_draft_rat,
-        rat_verified: d.rat_summary.total_verified_rat,
-        store_progress: getStoreProgress(d.store_readiness)
-      });
-    });
+    villagesList.forEach(d => worksheet.addRow(d));
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=' + 'Export_Kesiapan_Desa.xlsx');
+    res.setHeader('Content-Disposition', 'attachment; filename=' + `Export_Kesiapan_Desa_${dName}.xlsx`);
     await workbook.xlsx.write(res);
     res.end();
   } catch (e) {
@@ -374,12 +546,63 @@ router.get('/export', async (req, res) => {
   }
 });
 
-// Mount the router at /api and also at root to handle both direct and rewritten requests
+const KEY_STRING = "EX7rvuSQItlrBOSzePdlrrGuQOjOmIPs";
+const IV_STRING = "HIYa12MVEqtZIiBG";
+
+const decryptPayload = (encryptedBase64) => {
+  try {
+    const key = crypto.createHash('sha256').update(KEY_STRING).digest();
+    const iv = Buffer.from(IV_STRING, 'utf8');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    let decrypted = decipher.update(encryptedBase64, 'base64', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('Decryption error inside server proxy:', err.message);
+    throw err;
+  }
+};
+
+router.get('/cooperatives/explore', async (req, res) => {
+  const { search = '', page = 1, page_size = 10 } = req.query;
+  try {
+    const targetUrl = `https://api.simkopdes.go.id/api/cooperatives/explore?page=${page}&page_size=${page_size}&search=${encodeURIComponent(search)}`;
+    const response = await fetch(targetUrl, {
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'X-App-Version': '1.3.17',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`API returned status ${response.status}`);
+    }
+    const result = await response.json();
+    if (result.data) {
+      const decryptedText = decryptPayload(result.data);
+      const decryptedJson = JSON.parse(decryptedText);
+      res.json({
+        message: result.message,
+        data: decryptedJson,
+        pagination: result.pagination
+      });
+    } else {
+      res.json({
+        message: result.message,
+        data: [],
+        pagination: result.pagination
+      });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Mount the router
 app.use('/api', router);
 app.use('/', router);
 
 if (!process.env.VERCEL) {
-  await connectDb();
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });

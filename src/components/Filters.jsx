@@ -1,17 +1,20 @@
 import React from 'react';
 
 const Filters = ({ 
-  provinces, 
-  selectedProvince, 
+  provinces = [], 
+  selectedProvince = 'All', 
   onProvinceChange,
-  districts,
-  selectedDistrict,
-  onDistrictChange
+  districts = [], 
+  selectedDistrict = 'All', 
+  onDistrictChange,
+  subdistricts = [],
+  selectedSubdistrict = 'All',
+  onSubdistrictChange
 }) => {
   return (
     <div className="filters-container">
       <div className="filter-group">
-        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Provinsi:</label>
+        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Provinsi:</label>
         <select 
           className="filter-select" 
           value={selectedProvince} 
@@ -25,7 +28,7 @@ const Filters = ({
       </div>
 
       <div className="filter-group">
-        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Kabupaten:</label>
+        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Kabupaten:</label>
         <select 
           className="filter-select" 
           value={selectedDistrict} 
@@ -35,6 +38,21 @@ const Filters = ({
           <option value="All">Semua Kabupaten</option>
           {districts.map((d) => (
             <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="filter-group">
+        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Kecamatan:</label>
+        <select 
+          className="filter-select" 
+          value={selectedSubdistrict} 
+          onChange={(e) => onSubdistrictChange(e.target.value)}
+          disabled={selectedDistrict === 'All' || selectedProvince === 'All'}
+        >
+          <option value="All">Semua Kecamatan</option>
+          {subdistricts.map((s) => (
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
       </div>
