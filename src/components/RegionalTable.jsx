@@ -295,7 +295,11 @@ const RegionalTable = ({
                       RAT {getSortIcon('rat_verified')}
                     </div>
                   </th>
-                  <th>Pembangunan Gerai</th>
+                  <th onClick={() => requestSort('accounts_count')} style={{ cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      Pembangunan Gerai {getSortIcon('accounts_count')}
+                    </div>
+                  </th>
                 </>
               ) : (
                 <th onClick={() => requestSort('rat_verified')} style={{ cursor: 'pointer', textAlign: 'center' }}>
