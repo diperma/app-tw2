@@ -292,7 +292,10 @@ router.get('/district-detail', async (req, res) => {
     const sort = {};
     if (type === 'Simpanan') sort['savings_summary.total_amount'] = -1;
     else if (type === 'Transaksi') sort['economic_impact.total_value'] = -1;
-    else if (type === 'Penyelesaian RAT') sort['rat_summary.total_verified_rat'] = -1;
+    else if (type === 'Penyelesaian RAT') {
+      sort['rat_summary.total_verified_rat'] = -1;
+      sort['rat_summary.total_draft_rat'] = -1;
+    }
     else sort['territorial_data.village'] = 1;
 
     const data = await col.find({ 'territorial_data.district': district })
