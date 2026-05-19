@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronRight, ArrowLeft, RotateCcw, ChevronUp, ChevronDown, ChevronsUpDown, Search, ArrowRight, Eye } from 'lucide-react';
+import { ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Search, ArrowRight, Eye } from 'lucide-react';
 
 const RegionalTable = ({ 
   data = [], 
@@ -51,33 +51,7 @@ const RegionalTable = ({
     }
   };
 
-  const handleGoBack = (e) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    console.log('[DEBUG] handleGoBack triggered. level:', level);
-    if (level === 'village') {
-      if (onSubdistrictChange) onSubdistrictChange('All');
-    } else if (level === 'subdistrict') {
-      if (onDistrictChange) onDistrictChange('All');
-    } else if (level === 'district') {
-      if (onProvinceChange) onProvinceChange('All');
-    }
-  };
 
-  const handleReset = (e) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    console.log('[DEBUG] handleReset triggered');
-    if (onProvinceChange) {
-      onProvinceChange('All');
-    } else {
-      console.warn('onProvinceChange is not supplied!');
-    }
-  };
 
   // Local Search Filtering
   const filteredData = useMemo(() => {
@@ -182,56 +156,7 @@ const RegionalTable = ({
               {level === 'village' && `Daftar Desa`}
             </h3>
 
-            {level !== 'province' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', position: 'relative', zIndex: 25, pointerEvents: 'auto' }}>
-                <button 
-                  onClick={handleGoBack}
-                  title="Kembali ke Tingkat Sebelumnya"
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '0.3rem', 
-                    padding: '0.25rem 0.6rem', 
-                    borderRadius: '6px', 
-                    background: 'var(--primary-glow)', 
-                    border: '1px solid var(--border)', 
-                    color: 'var(--primary)', 
-                    cursor: 'pointer',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    position: 'relative',
-                    zIndex: 35,
-                    pointerEvents: 'auto',
-                    userSelect: 'none'
-                  }}
-                >
-                  <ArrowLeft size={12} /> Kembali
-                </button>
-                <button 
-                  onClick={handleReset}
-                  title="Reset ke Seluruh Indonesia"
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '0.3rem', 
-                    padding: '0.25rem 0.6rem', 
-                    borderRadius: '6px', 
-                    background: 'rgba(207, 19, 34, 0.05)', 
-                    border: '1px solid rgba(207, 19, 34, 0.15)', 
-                    color: 'var(--accent)', 
-                    cursor: 'pointer',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    position: 'relative',
-                    zIndex: 35,
-                    pointerEvents: 'auto',
-                    userSelect: 'none'
-                  }}
-                >
-                  <RotateCcw size={12} /> Reset
-                </button>
-              </div>
-            )}
+
           </div>
           
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem', userSelect: 'none' }}>

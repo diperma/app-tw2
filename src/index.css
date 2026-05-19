@@ -279,6 +279,14 @@ tr:hover td {
   width: 100%;
 }
 
+.filter-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-left: auto;
+  align-self: flex-end;
+}
+
 .filter-group {
   display: flex;
   align-items: center;
@@ -540,6 +548,12 @@ tr:hover td {
     align-items: flex-start;
     width: 100%;
     gap: 1rem;
+  }
+
+  .filter-actions-group {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .filter-group, .search-input-wrapper {

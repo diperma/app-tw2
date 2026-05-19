@@ -1,4 +1,5 @@
 import React from 'react';
+import { ArrowLeft, RotateCcw } from 'lucide-react';
 
 const Filters = ({ 
   provinces = [], 
@@ -11,6 +12,20 @@ const Filters = ({
   selectedSubdistrict = 'All',
   onSubdistrictChange
 }) => {
+  const handleGoBack = () => {
+    if (selectedSubdistrict !== 'All') {
+      onSubdistrictChange('All');
+    } else if (selectedDistrict !== 'All') {
+      onDistrictChange('All');
+    } else if (selectedProvince !== 'All') {
+      onProvinceChange('All');
+    }
+  };
+
+  const handleReset = () => {
+    onProvinceChange('All');
+  };
+
   return (
     <div className="filters-container">
       <div className="filter-group">
@@ -56,6 +71,51 @@ const Filters = ({
           ))}
         </select>
       </div>
+
+      {selectedProvince !== 'All' && (
+        <div className="filter-actions-group">
+          <button 
+            onClick={handleGoBack}
+            title="Kembali ke Tingkat Sebelumnya"
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.4rem', 
+              padding: '0.7rem 1.2rem', 
+              borderRadius: '10px', 
+              background: 'var(--primary-glow)', 
+              border: '1px solid var(--border)', 
+              color: 'var(--primary)', 
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              transition: 'all 0.3s ease'
+            }}
+          >
+            <ArrowLeft size={14} /> Kembali
+          </button>
+          <button 
+            onClick={handleReset}
+            title="Reset ke Seluruh Indonesia"
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.4rem', 
+              padding: '0.7rem 1.2rem', 
+              borderRadius: '10px', 
+              background: 'rgba(207, 19, 34, 0.05)', 
+              border: '1px solid rgba(207, 19, 34, 0.15)', 
+              color: 'var(--danger)', 
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              transition: 'all 0.3s ease'
+            }}
+          >
+            <RotateCcw size={14} /> Reset
+          </button>
+        </div>
+      )}
     </div>
   );
 };
