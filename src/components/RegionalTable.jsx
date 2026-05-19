@@ -18,9 +18,8 @@ const RegionalTable = ({
   const level = useMemo(() => {
     if (currentProvince === 'All') return 'province';
     if (currentDistrict === 'All') return 'district';
-    if (currentSubdistrict === 'All') return 'subdistrict';
-    return 'village';
-  }, [currentProvince, currentDistrict, currentSubdistrict]);
+    return 'village'; // Skip subdistrict and display villages directly!
+  }, [currentProvince, currentDistrict]);
 
   const handleRowClick = (row) => {
     console.log('[DEBUG] Row Clicked:', row.name, 'level:', level);
@@ -35,12 +34,6 @@ const RegionalTable = ({
         onDistrictChange(row.name);
       } else {
         console.warn('onDistrictChange is not supplied!');
-      }
-    } else if (level === 'subdistrict') {
-      if (onSubdistrictChange) {
-        onSubdistrictChange(row.name);
-      } else {
-        console.warn('onSubdistrictChange is not supplied!');
       }
     } else if (level === 'village') {
       if (onSelectVillage) {
@@ -96,7 +89,7 @@ const RegionalTable = ({
             <span 
               onClick={(e) => {
                 console.log('[DEBUG] Breadcrumb Nasional clicked');
-                handleReset(e);
+                if (onProvinceChange) onProvinceChange('All');
               }}
               style={{ cursor: 'pointer', color: currentProvince === 'All' ? 'var(--secondary)' : 'var(--primary)', fontWeight: currentProvince === 'All' ? 700 : 500, position: 'relative', zIndex: 20, pointerEvents: 'auto' }}
             >

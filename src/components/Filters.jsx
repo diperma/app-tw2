@@ -1,5 +1,6 @@
 import React from 'react';
-import { ArrowLeft, RotateCcw } from 'lucide-react';
+import { ArrowLeft, RotateCcw, FileSpreadsheet } from 'lucide-react';
+import { getExportUrl } from '../services/api';
 
 const Filters = ({ 
   provinces = [], 
@@ -72,50 +73,73 @@ const Filters = ({
         </select>
       </div>
 
-      {selectedProvince !== 'All' && (
-        <div className="filter-actions-group">
-          <button 
-            onClick={handleGoBack}
-            title="Kembali ke Tingkat Sebelumnya"
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.4rem', 
-              padding: '0.7rem 1.2rem', 
-              borderRadius: '10px', 
-              background: 'var(--primary-glow)', 
-              border: '1px solid var(--border)', 
-              color: 'var(--primary)', 
-              cursor: 'pointer',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              transition: 'all 0.3s ease'
-            }}
-          >
-            <ArrowLeft size={14} /> Kembali
-          </button>
-          <button 
-            onClick={handleReset}
-            title="Reset ke Seluruh Indonesia"
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.4rem', 
-              padding: '0.7rem 1.2rem', 
-              borderRadius: '10px', 
-              background: 'rgba(207, 19, 34, 0.05)', 
-              border: '1px solid rgba(207, 19, 34, 0.15)', 
-              color: 'var(--danger)', 
-              cursor: 'pointer',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              transition: 'all 0.3s ease'
-            }}
-          >
-            <RotateCcw size={14} /> Reset
-          </button>
-        </div>
-      )}
+      <div className="filter-actions-group">
+        {selectedProvince !== 'All' && (
+          <>
+            <button 
+              onClick={handleGoBack}
+              title="Kembali ke Tingkat Sebelumnya"
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.4rem', 
+                padding: '0.7rem 1.2rem', 
+                borderRadius: '10px', 
+                background: 'var(--primary-glow)', 
+                border: '1px solid var(--border)', 
+                color: 'var(--primary)', 
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.3s ease'
+              }}
+            >
+              <ArrowLeft size={14} /> Kembali
+            </button>
+            <button 
+              onClick={handleReset}
+              title="Reset ke Seluruh Indonesia"
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.4rem', 
+                padding: '0.7rem 1.2rem', 
+                borderRadius: '10px', 
+                background: 'rgba(207, 19, 34, 0.05)', 
+                border: '1px solid rgba(207, 19, 34, 0.15)', 
+                color: 'var(--danger)', 
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.3s ease'
+              }}
+            >
+              <RotateCcw size={14} /> Reset
+            </button>
+          </>
+        )}
+        <button 
+          onClick={() => window.open(getExportUrl(selectedProvince, selectedDistrict, selectedSubdistrict), '_blank')}
+          title="Unduh Laporan Excel Kesiapan Desa"
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.4rem', 
+            padding: '0.7rem 1.2rem', 
+            borderRadius: '10px', 
+            background: 'rgba(56, 158, 13, 0.08)', 
+            border: '1px solid rgba(56, 158, 13, 0.2)', 
+            color: '#2e7d32', 
+            cursor: 'pointer',
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            transition: 'all 0.3s ease'
+          }}
+          className="btn-export-excel"
+        >
+          <FileSpreadsheet size={14} /> Unduh Excel
+        </button>
+      </div>
     </div>
   );
 };

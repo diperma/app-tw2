@@ -38,6 +38,47 @@ const normalizeName = (name) => {
     .trim();
 };
 
+// Simple In-Memory Cache
+const memoryCache = {
+  data: {},
+  get(key) {
+    const item = this.data[key];
+    if (item && Date.now() < item.expires) return item.val;
+    return null;
+  },
+  set(key, val, ttl = 600000) { // 10 minutes default TTL
+    this.data[key] = { val, expires: Date.now() + ttl };
+  }
+};
+
+// Controlled parallel chunking helper to limit concurrency
+const fetchInChunks = async (items, mapper, concurrency = 15) => {
+  const results = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const chunk = items.slice(i, i + concurrency);
+    const chunkPromises = chunk.map(mapper);
+    const chunkResults = await Promise.all(chunkPromises);
+    results.push(...chunkResults);
+  }
+  return results;
+};
+
+const getStoreProgressPercent = (storeReadiness) => {
+  if (!storeReadiness || !Array.isArray(storeReadiness)) return 0;
+  const mapping = {
+    'Total Pembangunan 100%': 100,
+    'Total Pembangunan 76% - 99%': 85,
+    'Total Pembangunan 51% - 75%': 65,
+    'Total Pembangunan 21% - 50%': 35,
+    'Total Pembangunan hingga 20%': 15
+  };
+  for (const key of Object.keys(mapping)) {
+    const item = storeReadiness.find(s => s.label === key);
+    if (item && item.value > 0) return mapping[key];
+  }
+  return 0;
+};
+
 const fetchJSON = async (url) => {
   const res = await fetch(url);
   if (!res.ok) {
@@ -297,6 +338,13 @@ router.get('/charts', async (req, res) => {
 
 router.get('/regional-data', async (req, res) => {
   const { province = 'All', district = 'All', subdistrict = 'All' } = req.query;
+  const cacheKey = `regional_${province}_${district}_${subdistrict}`;
+  const cachedData = memoryCache.get(cacheKey);
+  if (cachedData) {
+    console.log(`[CACHE HIT] returning cached regional-data for key: ${cacheKey}`);
+    return res.json(cachedData);
+  }
+
   try {
     let rawList = [];
 
@@ -330,45 +378,61 @@ router.get('/regional-data', async (req, res) => {
       const dist = await resolveDistrict(province, district);
       if (!dist) return res.json([]);
       const dData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
-      rawList = (dData.territorial_data?.subdistricts || []).map(item => ({
-        id: item.subdistrict_id,
-        name: item.subdistrict,
-        total_koperasi: item.count,
-        has_npwp: item.npwp_count,
-        has_nib: item.nib_count,
-        rat_verified: item.rat_count,
-        total_simpanan: item.savings_summary?.total_amount || 0,
-        total_transaksi: item.transaction_value || 0
-      }));
+      const subdistricts = dData.territorial_data?.subdistricts || [];
+
+      // Fetch all subdistricts' details in parallel
+      const subdistDetailList = await Promise.all(
+        subdistricts.map(s => 
+          fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${s.subdistrict_id}?period=2026`)
+            .catch(() => null)
+        )
+      );
+
+      let villages = [];
+      for (const sData of subdistDetailList) {
+        if (sData && sData.territorial_data?.villages) {
+          const sName = sData.territorial_data.subdistrict;
+          villages.push(...sData.territorial_data.villages.map(v => ({
+            ...v,
+            subdistrict: sName
+          })));
+        }
+      }
+
+      // Fetch all village details in parallel (chunked)
+      const villageDetails = await fetchInChunks(
+        villages,
+        v => fetchJSON(`https://api.merahputih.kop.id/api/statistics/national-readiness/village/${v.village_id}?period=2026`).catch(() => null),
+        15
+      );
+
+      rawList = villages.map((item, idx) => {
+        const vDetail = villageDetails[idx];
+        const storeProgress = vDetail ? getStoreProgressPercent(vDetail.store_readiness) : 0;
+        
+        return {
+          id: item.village_id,
+          name: `${item.village} (${item.subdistrict})`,
+          total_koperasi: item.count,
+          has_npwp: item.npwp_count,
+          has_nib: item.nib_count,
+          rat_verified: item.rat_count,
+          total_simpanan: item.savings_summary?.total_amount || 0,
+          total_transaksi: item.transaction_value || 0,
+          accounts_count: storeProgress
+        };
+      });
     } else {
       const sub = await resolveSubdistrict(province, district, subdistrict);
       if (!sub) return res.json([]);
       const sData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${sub.subdistrict_id}?period=2026`);
       const villages = sData.territorial_data?.villages || [];
 
-      // Helper function to resolve the survey buckets
-      const getStoreProgressPercent = (storeReadiness) => {
-        if (!storeReadiness || !Array.isArray(storeReadiness)) return 0;
-        const mapping = {
-          'Total Pembangunan 100%': 100,
-          'Total Pembangunan 76% - 99%': 85,
-          'Total Pembangunan 51% - 75%': 65,
-          'Total Pembangunan 21% - 50%': 35,
-          'Total Pembangunan hingga 20%': 15
-        };
-        for (const key of Object.keys(mapping)) {
-          const item = storeReadiness.find(s => s.label === key);
-          if (item && item.value > 0) return mapping[key];
-        }
-        return 0;
-      };
-
-      // Fetch all village details in parallel from api.merahputih.kop.id
-      const villageDetails = await Promise.all(
-        villages.map(v => 
-          fetchJSON(`https://api.merahputih.kop.id/api/statistics/national-readiness/village/${v.village_id}?period=2026`)
-            .catch(() => null)
-        )
+      // Fetch all village details in parallel (chunked)
+      const villageDetails = await fetchInChunks(
+        villages,
+        v => fetchJSON(`https://api.merahputih.kop.id/api/statistics/national-readiness/village/${v.village_id}?period=2026`).catch(() => null),
+        15
       );
 
       rawList = villages.map((item, idx) => {
@@ -407,6 +471,7 @@ router.get('/regional-data', async (req, res) => {
       total_transaksi_fmt: `Rp${formatID(d.total_transaksi / 1000000)} Jt`
     }));
 
+    memoryCache.set(cacheKey, response);
     res.json(response);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -485,7 +550,28 @@ router.get('/export', async (req, res) => {
     let dName = district || 'All';
     let sName = subdistrict || 'All';
 
-    if (sName !== 'All') {
+    let filename = `Export_Kesiapan_Desa_Nasional.xlsx`;
+
+    if (pName === 'All') {
+      filename = `Export_Kesiapan_Desa_Nasional.xlsx`;
+      const coop = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026');
+      const provinces = coop.nested_data?.grouped || [];
+      villagesList = provinces.map(p => ({
+        province: p.province,
+        district: 'Seluruh Kabupaten',
+        subdistrict: 'Seluruh Kecamatan',
+        village: 'Rincian Tingkat Provinsi',
+        koperasi: `Aggregat ${p.province}`,
+        savings: p.savings_summary?.total_amount || 0,
+        transactions: p.transaction_value || 0,
+        npwp: p.npwp_count > 0 ? 'Y' : 'N',
+        nib: p.nib_count > 0 ? 'Y' : 'N',
+        rat_draft: 0,
+        rat_verified: p.rat_count || 0,
+        store_progress: '-'
+      }));
+    } else if (sName !== 'All') {
+      filename = `Export_Kesiapan_Desa_Kecamatan_${sName}.xlsx`;
       const sub = await resolveSubdistrict(pName, dName, sName);
       if (sub) {
         const sData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${sub.subdistrict_id}?period=2026`);
@@ -505,6 +591,7 @@ router.get('/export', async (req, res) => {
         }));
       }
     } else if (dName !== 'All') {
+      filename = `Export_Kesiapan_Desa_Kabupaten_${dName}.xlsx`;
       const dist = await resolveDistrict(pName, dName);
       if (dist) {
         const distData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
@@ -517,6 +604,56 @@ router.get('/export', async (req, res) => {
             villagesList.push(...sData.territorial_data.villages.map(v => ({
               province: pName,
               district: dName,
+              subdistrict: sData.territorial_data.subdistrict,
+              village: v.village,
+              koperasi: `Koperasi Desa ${v.village}`,
+              savings: v.savings_summary?.total_amount || 0,
+              transactions: v.transaction_value || 0,
+              npwp: v.npwp_count > 0 ? 'Y' : 'N',
+              nib: v.nib_count > 0 ? 'Y' : 'N',
+              rat_draft: 0,
+              rat_verified: v.rat_count || 0,
+              store_progress: v.accounts_count > 0 ? '100%' : 'Belum pembangunan'
+            })));
+          }
+        }
+      }
+    } else {
+      // Province-level export
+      filename = `Export_Kesiapan_Desa_Provinsi_${pName}.xlsx`;
+      const prov = await resolveProvince(pName);
+      if (prov) {
+        const pData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
+        const districts = pData.territorial_data?.districts || [];
+        
+        const distDetailList = await Promise.all(
+          districts.map(d => fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${d.district_id}?period=2026`).catch(() => null))
+        );
+        
+        let subdistricts = [];
+        for (const dData of distDetailList) {
+          if (dData && dData.territorial_data?.subdistricts) {
+            const dNameLocal = dData.territorial_data.district;
+            subdistricts.push(...dData.territorial_data.subdistricts.map(s => ({
+              ...s,
+              districtName: dNameLocal
+            })));
+          }
+        }
+        
+        const subdistDetailList = await fetchInChunks(
+          subdistricts,
+          s => fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${s.subdistrict_id}?period=2026`).catch(() => null),
+          20
+        );
+        
+        for (let idx = 0; idx < subdistDetailList.length; idx++) {
+          const sData = subdistDetailList[idx];
+          const sLocal = subdistricts[idx];
+          if (sData && sData.territorial_data?.villages) {
+            villagesList.push(...sData.territorial_data.villages.map(v => ({
+              province: pName,
+              district: sLocal.districtName,
               subdistrict: sData.territorial_data.subdistrict,
               village: v.village,
               koperasi: `Koperasi Desa ${v.village}`,
@@ -553,12 +690,9 @@ router.get('/export', async (req, res) => {
     villagesList.forEach(d => worksheet.addRow(d));
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=' + `Export_Kesiapan_Desa_${dName}.xlsx`);
+    res.setHeader('Content-Disposition', 'attachment; filename=' + filename);
     await workbook.xlsx.write(res);
     res.end();
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
 });
 
 const KEY_STRING = "EX7rvuSQItlrBOSzePdlrrGuQOjOmIPs";
