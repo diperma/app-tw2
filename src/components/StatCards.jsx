@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, FileText, CheckCircle, ClipboardCheck, Wallet, TrendingUp } from 'lucide-react';
+import { Home, FileText, CheckCircle, ClipboardCheck, Wallet, TrendingUp, Hammer, Award } from 'lucide-react';
 
 const StatCards = ({ stats }) => {
   const formatValue = (val) => {
@@ -23,16 +23,18 @@ const StatCards = ({ stats }) => {
     { label: 'NPWP Aktif', value: formatValue(stats?.has_npwp), icon: FileText, color: '#36cfc9' },
     { label: 'NIB Terdaftar', value: formatValue(stats?.has_nib), icon: CheckCircle, color: 'var(--accent)' },
     { label: 'Penyelesaian RAT', value: formatValue(stats?.rat_submitted), icon: ClipboardCheck, color: 'var(--warning)' },
+    { label: 'Progres Pembangunan', value: formatValue(stats?.gerai_all_progress), icon: Hammer, color: '#9254de' },
+    { label: 'Gerai Selesai 100%', value: formatValue(stats?.gerai_100_percent), icon: Award, color: '#2f54eb' },
     { label: 'Akumulasi Simpanan', value: formatCurrency(stats?.total_simpanan), icon: Wallet, color: '#597ef7' },
     { label: 'Volume Transaksi', value: formatCurrency(stats?.total_transaksi), icon: TrendingUp, color: '#ff7875' },
   ];
 
-  const complianceCards = cards.slice(0, 4);
-  const economicCards = cards.slice(4);
+  const complianceCards = cards.slice(0, 6);
+  const economicCards = cards.slice(6);
 
   return (
     <div>
-      {/* Row 1: Compliance Metrics (4 Columns) */}
+      {/* Row 1: Compliance Metrics (6 Columns) */}
       <div className="compliance-grid">
         {complianceCards.map((card, i) => (
           <div key={i} className="glass-card" style={{ borderLeft: `4px solid ${card.color}` }}>

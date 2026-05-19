@@ -131,6 +131,9 @@ router.get('/stats', async (req, res) => {
       const coop = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026');
       const econ = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/economic-impact-rat?period=2026');
       const total_simpanan = (coop.nested_data?.grouped || []).reduce((sum, item) => sum + (item.savings_summary?.total_amount || 0), 0);
+      const storeData = coop.store_readiness || [];
+      const gerai_all_progress = storeData.reduce((sum, item) => sum + (item.value || 0), 0);
+      const gerai_100_percent = storeData.find(item => item.label === 'Total Pembangunan 100%')?.value || 0;
       
       return res.json({
         total_villages: coop.cooperative_stats?.total || 0,
@@ -138,7 +141,9 @@ router.get('/stats', async (req, res) => {
         total_transaksi: econ.economic_impact?.total_value || 0,
         rat_submitted: (econ.rat_summary?.total_verified_rat || 0) + (econ.rat_summary?.total_draft_rat || 0),
         has_npwp: coop.cooperative_stats?.total_with_npwp || 0,
-        has_nib: coop.cooperative_stats?.total_with_nib || 0
+        has_nib: coop.cooperative_stats?.total_with_nib || 0,
+        gerai_all_progress,
+        gerai_100_percent
       });
     }
 
@@ -146,6 +151,9 @@ router.get('/stats', async (req, res) => {
       const prov = await resolveProvince(province);
       if (!prov) return res.status(404).json({ error: 'Province not found' });
       const pData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
+      const storeData = pData.store_readiness || [];
+      const gerai_all_progress = storeData.reduce((sum, item) => sum + (item.value || 0), 0);
+      const gerai_100_percent = storeData.find(item => item.label === 'Total Pembangunan 100%')?.value || 0;
       
       return res.json({
         total_villages: pData.territorial_data?.totals?.count || 0,
@@ -153,13 +161,18 @@ router.get('/stats', async (req, res) => {
         total_transaksi: pData.economic_impact?.total_value || pData.territorial_data?.totals?.transaction_value || 0,
         rat_submitted: (pData.rat_summary?.total_verified_rat || 0) + (pData.rat_summary?.total_draft_rat || 0),
         has_npwp: pData.territorial_data?.totals?.npwp_count || 0,
-        has_nib: pData.territorial_data?.totals?.nib_count || 0
+        has_nib: pData.territorial_data?.totals?.nib_count || 0,
+        gerai_all_progress,
+        gerai_100_percent
       });
     }
 
     const dist = await resolveDistrict(province, district);
     if (!dist) return res.status(404).json({ error: 'District not found' });
     const dData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
+    const storeData = dData.store_readiness || [];
+    const gerai_all_progress = storeData.reduce((sum, item) => sum + (item.value || 0), 0);
+    const gerai_100_percent = storeData.find(item => item.label === 'Total Pembangunan 100%')?.value || 0;
 
     res.json({
       total_villages: dData.territorial_data?.totals?.count || 0,
@@ -167,7 +180,9 @@ router.get('/stats', async (req, res) => {
       total_transaksi: dData.economic_impact?.total_value || dData.territorial_data?.totals?.transaction_value || 0,
       rat_submitted: (dData.rat_summary?.total_verified_rat || 0) + (dData.rat_summary?.total_draft_rat || 0),
       has_npwp: dData.territorial_data?.totals?.npwp_count || 0,
-      has_nib: dData.territorial_data?.totals?.nib_count || 0
+      has_nib: dData.territorial_data?.totals?.nib_count || 0,
+      gerai_all_progress,
+      gerai_100_percent
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
