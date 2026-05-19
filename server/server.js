@@ -480,12 +480,30 @@ router.get('/village-detail', async (req, res) => {
 router.get('/export', async (req, res) => {
   const { province, district, subdistrict } = req.query;
   try {
-    let villagesList = [];
     let pName = province || 'All';
     let dName = district || 'All';
     let sName = subdistrict || 'All';
 
+    // 1. Block National Level export
+    if (pName === 'All') {
+      return res.status(400).json({ error: 'Unduh Excel tingkat Nasional dinonaktifkan. Silakan pilih provinsi terlebih dahulu.' });
+    }
+
+    let villagesList = [];
+
+    // Helper: Chunk array to throttle parallel requests
+    const chunkArray = (array, size) => {
+      const result = [];
+      for (let i = 0; i < array.length; i += size) {
+        result.push(array.slice(i, i + size));
+      }
+      return result;
+    };
+
     if (sName !== 'All') {
+      // ----------------------------------------------------
+      // BRANCH A: KECAMATAN LEVEL (Single Subdistrict)
+      // ----------------------------------------------------
       const sub = await resolveSubdistrict(pName, dName, sName);
       if (sub) {
         const sData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${sub.subdistrict_id}?period=2026`);
@@ -505,6 +523,9 @@ router.get('/export', async (req, res) => {
         }));
       }
     } else if (dName !== 'All') {
+      // ----------------------------------------------------
+      // BRANCH B: KABUPATEN LEVEL (Traverse Subdistricts)
+      // ----------------------------------------------------
       const dist = await resolveDistrict(pName, dName);
       if (dist) {
         const distData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
@@ -531,32 +552,118 @@ router.get('/export', async (req, res) => {
           }
         }
       }
+    } else {
+      // ----------------------------------------------------
+      // BRANCH C: PROVINCE LEVEL (Full Province Traversal)
+      // ----------------------------------------------------
+      const prov = await resolveProvince(pName);
+      if (prov) {
+        const provData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
+        const districts = provData.territorial_data?.districts || [];
+
+        // 1. Fetch all district details in parallel to resolve subdistricts
+        const distDataList = await Promise.all(
+          districts.map(d => fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${d.district_id}?period=2026`).catch(() => null))
+        );
+
+        // 2. Gather all subdistricts
+        const allSubdistricts = [];
+        for (const dData of distDataList) {
+          if (dData && dData.territorial_data?.subdistricts) {
+            const currentDistName = dData.territorial_data.district;
+            allSubdistricts.push(...dData.territorial_data.subdistricts.map(s => ({
+              subdistrict_id: s.subdistrict_id,
+              districtName: currentDistName
+            })));
+          }
+        }
+
+        // 3. Fetch subdistrict details in chunks of 25
+        const subdistrictBatches = chunkArray(allSubdistricts, 25);
+        for (const batch of subdistrictBatches) {
+          const batchResults = await Promise.all(
+            batch.map(item => 
+              fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${item.subdistrict_id}?period=2026`)
+                .then(res => ({ data: res, districtName: item.districtName }))
+                .catch(() => null)
+            )
+          );
+
+          // 4. Compile village list
+          for (const res of batchResults) {
+            if (res && res.data?.territorial_data?.villages) {
+              const sData = res.data;
+              villagesList.push(...sData.territorial_data.villages.map(v => ({
+                province: pName,
+                district: res.districtName,
+                subdistrict: sData.territorial_data.subdistrict,
+                village: v.village,
+                koperasi: `Koperasi Desa ${v.village}`,
+                savings: v.savings_summary?.total_amount || 0,
+                transactions: v.transaction_value || 0,
+                npwp: v.npwp_count > 0 ? 'Y' : 'N',
+                nib: v.nib_count > 0 ? 'Y' : 'N',
+                rat_draft: 0,
+                rat_verified: v.rat_count || 0,
+                store_progress: v.accounts_count > 0 ? '100%' : 'Belum pembangunan'
+              })));
+            }
+          }
+        }
+      }
     }
 
+    // 5. Generate Excel WorkSheet
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Village Readiness');
+    const worksheet = workbook.addWorksheet('Kesiapan Desa');
+
     worksheet.columns = [
       { header: 'Provinsi', key: 'province', width: 20 },
-      { header: 'Kabupaten', key: 'district', width: 20 },
+      { header: 'Kabupaten', key: 'district', width: 25 },
       { header: 'Kecamatan', key: 'subdistrict', width: 20 },
       { header: 'Desa', key: 'village', width: 20 },
-      { header: 'Nama Koperasi', key: 'koperasi', width: 30 },
-      { header: 'Simpanan Total', key: 'savings', width: 15 },
-      { header: 'Total Transaksi', key: 'transactions', width: 15 },
+      { header: 'Nama Koperasi', key: 'koperasi', width: 35 },
+      { header: 'Simpanan Total', key: 'savings', width: 20 },
+      { header: 'Total Transaksi', key: 'transactions', width: 20 },
       { header: 'Status NPWP', key: 'npwp', width: 15 },
       { header: 'Status NIB', key: 'nib', width: 15 },
       { header: 'Pengajuan RAT', key: 'rat_draft', width: 15 },
-      { header: 'RAT Terverifikasi', key: 'rat_verified', width: 15 },
-      { header: 'Progres Pembangunan Gerai', key: 'store_progress', width: 25 }
+      { header: 'RAT Terverifikasi', key: 'rat_verified', width: 18 },
+      { header: 'Progres Pembangunan Gerai', key: 'store_progress', width: 28 }
     ];
 
-    villagesList.forEach(d => worksheet.addRow(d));
+    // Excel brand design header styling
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFF' } };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: '107C41' } // Premium Excel Green
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    villagesList.forEach(d => {
+      const row = worksheet.addRow(d);
+      row.getCell('savings').numFmt = '"Rp"#,##0';
+      row.getCell('transactions').numFmt = '"Rp"#,##0';
+      row.getCell('savings').alignment = { horizontal: 'right' };
+      row.getCell('transactions').alignment = { horizontal: 'right' };
+      row.getCell('npwp').alignment = { horizontal: 'center' };
+      row.getCell('nib').alignment = { horizontal: 'center' };
+      row.getCell('rat_draft').alignment = { horizontal: 'center' };
+      row.getCell('rat_verified').alignment = { horizontal: 'center' };
+    });
+
+    const exportName = sName !== 'All' ? `${pName}_${dName}_${sName}` : `${pName}_${dName}`;
+    const fileName = `Export_Kesiapan_${exportName}.xlsx`.replace(/\s+/g, '_');
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=' + `Export_Kesiapan_Desa_${dName}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
     await workbook.xlsx.write(res);
     res.end();
   } catch (e) {
+    console.error('Export Error:', e);
     res.status(500).json({ error: e.message });
   }
 });

@@ -5,8 +5,7 @@ import {
   fetchRegionalData, 
   fetchProvinces, 
   fetchDistricts, 
-  fetchSubdistricts,
-  getExportUrl 
+  fetchSubdistricts
 } from '../services/api';
 import StatCards from './StatCards';
 import Highlights from './Highlights';
@@ -36,6 +35,25 @@ const Dashboard = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
 
+  // ==========================================
+  // ATOMIC FILTER TRANSITIONS
+  // ==========================================
+  const handleProvinceChange = (newProvince) => {
+    setProvince(newProvince);
+    setDistrict('All');
+    setSubdistrict('All');
+    setSubdistricts([]);
+  };
+
+  const handleDistrictChange = (newDistrict) => {
+    setDistrict(newDistrict);
+    setSubdistrict('All');
+  };
+
+  const handleSubdistrictChange = (newSubdistrict) => {
+    setSubdistrict(newSubdistrict);
+  };
+
   // Load Provinces on Initial Mount
   useEffect(() => {
     fetchProvinces().then(setProvinces).catch(console.error);
@@ -45,14 +63,8 @@ const Dashboard = () => {
   useEffect(() => {
     if (province !== 'All') {
       fetchDistricts(province).then(setDistricts).catch(console.error);
-      setDistrict('All');
-      setSubdistrict('All');
-      setSubdistricts([]);
     } else {
       setDistricts([]);
-      setDistrict('All');
-      setSubdistrict('All');
-      setSubdistricts([]);
     }
   }, [province]);
 
@@ -60,10 +72,8 @@ const Dashboard = () => {
   useEffect(() => {
     if (province !== 'All' && district !== 'All') {
       fetchSubdistricts(province, district).then(setSubdistricts).catch(console.error);
-      setSubdistrict('All');
     } else {
       setSubdistricts([]);
-      setSubdistrict('All');
     }
   }, [province, district]);
 
@@ -179,13 +189,13 @@ const Dashboard = () => {
           <Filters 
             provinces={provinces} 
             selectedProvince={province} 
-            onProvinceChange={setProvince} 
+            onProvinceChange={handleProvinceChange} 
             districts={districts}
             selectedDistrict={district}
-            onDistrictChange={setDistrict}
+            onDistrictChange={handleDistrictChange} 
             subdistricts={subdistricts}
             selectedSubdistrict={subdistrict}
-            onSubdistrictChange={setSubdistrict}
+            onSubdistrictChange={handleSubdistrictChange} 
           />
         )}
       </header>
@@ -204,9 +214,9 @@ const Dashboard = () => {
               highlights={highlights} 
               currentProvince={province}
               currentDistrict={district}
-              onProvinceChange={setProvince}
-              onDistrictChange={setDistrict}
-              onSubdistrictChange={setSubdistrict}
+              onProvinceChange={handleProvinceChange}
+              onDistrictChange={handleDistrictChange}
+              onSubdistrictChange={handleSubdistrictChange}
             />
           </section>
 
@@ -218,13 +228,23 @@ const Dashboard = () => {
 
           {/* Main Table view */}
           <section style={{ marginBottom: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-              <h2 style={{ fontSize: '1.3rem', fontWeight: 600, color: 'var(--secondary)' }}>Rincian Wilayah</h2>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Menampilkan data untuk: <strong style={{ color: 'var(--primary)' }}>
-                  {province === 'All' ? 'Seluruh Indonesia' : (district === 'All' ? province : (subdistrict === 'All' ? `${province} > ${district}` : `${province} > ${district} > ${subdistrict}`))}
-                </strong>
-              </span>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: '0.8rem',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <div>
+                <h2 style={{ fontSize: '1.3rem', fontWeight: 600, color: 'var(--secondary)' }}>Rincian Wilayah</h2>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Menampilkan data untuk: <strong style={{ color: 'var(--primary)' }}>
+                    {province === 'All' ? 'Seluruh Indonesia' : (district === 'All' ? province : (subdistrict === 'All' ? `${province} > ${district}` : `${province} > ${district} > ${subdistrict}`))}
+                  </strong>
+                </span>
+              </div>
+
             </div>
             
             <RegionalTable 

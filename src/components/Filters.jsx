@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
+import { getExportUrl } from '../services/api';
 
 const Filters = ({ 
   provinces = [], 
@@ -94,6 +95,45 @@ const Filters = ({
           >
             <ArrowLeft size={14} /> Kembali
           </button>
+          
+          <a 
+            href={getExportUrl(selectedProvince, selectedDistrict, selectedSubdistrict)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Unduh data Excel tingkat ${selectedDistrict === 'All' ? 'Provinsi' : (selectedSubdistrict === 'All' ? 'Kabupaten' : 'Kecamatan')}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.7rem 1.2rem',
+              borderRadius: '10px',
+              background: 'linear-gradient(135deg, #107C41 0%, #159A55 100%)',
+              color: '#ffffff',
+              textDecoration: 'none',
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              boxShadow: '0 4px 12px rgba(16, 124, 65, 0.18)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              border: 'none',
+              cursor: 'pointer'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 6px 16px rgba(16, 124, 65, 0.26)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 124, 65, 0.18)';
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Unduh Excel ({selectedDistrict === 'All' ? 'Provinsi' : (selectedSubdistrict === 'All' ? 'Kabupaten' : 'Kecamatan')})
+          </a>
+
           <button 
             onClick={handleReset}
             title="Reset ke Seluruh Indonesia"
