@@ -1,4 +1,3 @@
-import React from 'react';
 import { Home, FileText, CheckCircle, ClipboardCheck, Wallet, TrendingUp, Hammer, Award } from 'lucide-react';
 
 const StatCards = ({ stats }) => {

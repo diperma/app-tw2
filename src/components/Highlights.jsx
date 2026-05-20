@@ -1,4 +1,3 @@
-import React from 'react';
 import { Wallet, ArrowUpRight, CheckCircle } from 'lucide-react';
 
 const Highlights = ({ 

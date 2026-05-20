@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 
 async function run() {
   const apiBase = 'http://localhost:5000/api';

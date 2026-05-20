@@ -3,9 +3,6 @@ import cors from 'cors';
 import ExcelJS from 'exceljs';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
-import { connectDb, getCollection } from './db.js';
 
 dotenv.config();
 
@@ -480,200 +477,25 @@ router.get('/village-detail', async (req, res) => {
   }
 });
 
-// Global Map to track export jobs
-const exportJobs = new Map();
-
-// Helper sleep function to yield event loop and throttle queries
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Status helper
-const getStoreProgress = (storeReadiness) => {
-  if (!storeReadiness || !Array.isArray(storeReadiness)) return 'Belum pembangunan';
-  const mapping = {
-    'Total Pembangunan 100%': '100%',
-    'Total Pembangunan 76% - 99%': '76 - 99%',
-    'Total Pembangunan 51% - 75%': '51 - 75%',
-    'Total Pembangunan 21% - 50%': '21 - 50%',
-    'Total Pembangunan hingga 20%': '0 - 20%'
-  };
-  for (const key of Object.keys(mapping)) {
-    const item = storeReadiness.find(s => s.label === key);
-    if (item && item.value > 0) return mapping[key];
-  }
-  return 'Belum pembangunan';
-};
-
-// Async background Excel generator utilizing MongoDB and non-blocking event-loop yielding
-async function startNationalExportJob(jobId) {
-  try {
-    console.log(`[Job ${jobId}] Starting national export job from database...`);
-    const col = getCollection();
-    
-    // Fetch total document count to calculate progress accurately
-    const total = await col.countDocuments();
-    exportJobs.set(jobId, { status: 'processing', progress: 0, total, processed: 0 });
-    
-    const cursor = col.find({});
-    
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Kesiapan Desa');
-    worksheet.columns = [
-      { header: 'Provinsi', key: 'province', width: 20 },
-      { header: 'Kabupaten', key: 'district', width: 25 },
-      { header: 'Kecamatan', key: 'subdistrict', width: 20 },
-      { header: 'Desa', key: 'village', width: 20 },
-      { header: 'Nama Koperasi', key: 'koperasi', width: 35 },
-      { header: 'Simpanan Total', key: 'savings', width: 20 },
-      { header: 'Total Transaksi', key: 'transactions', width: 20 },
-      { header: 'Status NPWP', key: 'npwp', width: 15 },
-      { header: 'Status NIB', key: 'nib', width: 15 },
-      { header: 'Pengajuan RAT', key: 'rat_draft', width: 15 },
-      { header: 'RAT Terverifikasi', key: 'rat_verified', width: 18 },
-      { header: 'Progres Pembangunan Gerai', key: 'store_progress', width: 28 }
-    ];
-
-    // Excel brand design header styling (Excel Green)
-    const headerRow = worksheet.getRow(1);
-    headerRow.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFF' } };
-    headerRow.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: '107C41' } // Premium Excel Green
-    };
-    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
-
-    let processed = 0;
-    
-    // Process document by document from cursor
-    while (await cursor.hasNext()) {
-      const d = await cursor.next();
-      
-      const row = worksheet.addRow({
-        province: d.territorial_data?.province || '',
-        district: d.territorial_data?.district || '',
-        subdistrict: d.territorial_data?.subdistrict || '',
-        village: d.territorial_data?.village || '',
-        koperasi: d.territorial_data?.village ? `Koperasi Desa ${d.territorial_data.village}` : '',
-        savings: d.savings_summary?.total_amount || 0,
-        transactions: d.economic_impact?.total_value || 0,
-        npwp: d.territorial_data?.totals?.npwp_count > 0 ? 'Y' : 'N',
-        nib: d.territorial_data?.totals?.nib_count > 0 ? 'Y' : 'N',
-        rat_draft: d.rat_summary?.total_draft_rat || 0,
-        rat_verified: d.rat_summary?.total_verified_rat || 0,
-        store_progress: getStoreProgress(d.store_readiness)
-      });
-
-      row.getCell('savings').numFmt = '"Rp"#,##0';
-      row.getCell('transactions').numFmt = '"Rp"#,##0';
-      row.getCell('savings').alignment = { horizontal: 'right' };
-      row.getCell('transactions').alignment = { horizontal: 'right' };
-      row.getCell('npwp').alignment = { horizontal: 'center' };
-      row.getCell('nib').alignment = { horizontal: 'center' };
-      row.getCell('rat_draft').alignment = { horizontal: 'center' };
-      row.getCell('rat_verified').alignment = { horizontal: 'center' };
-
-      processed++;
-
-      // Every 1,000 rows, update progress AND pause/sleep to yield event loop!
-      if (processed % 1000 === 0) {
-        const progress = Math.min(99, Math.round((processed / total) * 100));
-        exportJobs.set(jobId, { status: 'processing', progress, total, processed });
-        
-        // Yield execution to allow server to handle other client HTTP requests
-        await sleep(40);
+// Optimized high-concurrency worker pool helper
+async function mapConcurrent(items, concurrency, fn) {
+  const results = [];
+  let index = 0;
+  async function worker() {
+    while (index < items.length) {
+      const currentIndex = index++;
+      const item = items[currentIndex];
+      try {
+        results[currentIndex] = await fn(item);
+      } catch {
+        results[currentIndex] = null;
       }
     }
-
-    console.log(`[Job ${jobId}] Finished processing ${processed} rows. Writing workbook...`);
-    
-    // Ensure scratch directory exists
-    const scratchDir = path.join(process.cwd(), 'scratch');
-    if (!fs.existsSync(scratchDir)) {
-      fs.mkdirSync(scratchDir, { recursive: true });
-    }
-    
-    const outputPath = path.join(scratchDir, `export_kesiapan_nasional_${jobId}.xlsx`);
-    await workbook.xlsx.writeFile(outputPath);
-    
-    console.log(`[Job ${jobId}] Workbook successfully written to ${outputPath}`);
-    
-    exportJobs.set(jobId, {
-      status: 'completed',
-      progress: 100,
-      filename: outputPath
-    });
-  } catch (err) {
-    console.error(`[Job ${jobId}] Background export error:`, err);
-    exportJobs.set(jobId, {
-      status: 'failed',
-      progress: 100,
-      error: err.message
-    });
   }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
 }
-
-// 1. Start National Export Background Job
-router.post('/export/national/start', async (req, res) => {
-  try {
-    const jobId = crypto.randomBytes(16).toString('hex');
-    exportJobs.set(jobId, { status: 'processing', progress: 0 });
-    
-    // Fire and forget background process
-    startNationalExportJob(jobId);
-    
-    res.json({ jobId });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// 2. Poll National Export Job Status
-router.get('/export/national/status', (req, res) => {
-  const { jobId } = req.query;
-  if (!jobId || !exportJobs.has(jobId)) {
-    return res.status(404).json({ error: 'Job not found' });
-  }
-  const job = exportJobs.get(jobId);
-  res.json({
-    status: job.status,
-    progress: job.progress,
-    error: job.error || null
-  });
-});
-
-// 3. Download Completed Excel Sheet
-router.get('/export/national/download', (req, res) => {
-  const { jobId } = req.query;
-  if (!jobId || !exportJobs.has(jobId)) {
-    return res.status(404).json({ error: 'Job not found' });
-  }
-  
-  const job = exportJobs.get(jobId);
-  if (job.status !== 'completed' || !job.filename) {
-    return res.status(400).json({ error: 'Job is not complete or file does not exist' });
-  }
-  
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', 'attachment; filename="Export_Kesiapan_Nasional_Indonesia.xlsx"');
-  
-  res.sendFile(job.filename, { dotfiles: 'allow' }, (err) => {
-    if (err) {
-      console.error('File sending error:', err);
-    } else {
-      // Clean up the scratch file after short delay to ensure process freed it
-      setTimeout(() => {
-        try {
-          if (fs.existsSync(job.filename)) {
-            fs.unlinkSync(job.filename);
-            console.log(`Temporary job file ${job.filename} deleted successfully.`);
-          }
-        } catch (unlinkErr) {
-          console.error('Failed to delete temporary job file:', unlinkErr.message);
-        }
-      }, 10000);
-    }
-  });
-});
 
 router.get('/export', async (req, res) => {
   const { province, district, subdistrict } = req.query;
@@ -682,26 +504,76 @@ router.get('/export', async (req, res) => {
     let dName = district || 'All';
     let sName = subdistrict || 'All';
 
-    // 1. Block National Level export
+    const workbook = new ExcelJS.Workbook();
+
+    // ----------------------------------------------------
+    // BRANCH A: NATIONAL SUMMARY EXPORT
+    // ----------------------------------------------------
     if (pName === 'All') {
-      return res.status(400).json({ error: 'Unduh Excel tingkat Nasional dinonaktifkan. Silakan pilih provinsi terlebih dahulu.' });
+      const coop = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026');
+      const list = (coop.nested_data?.grouped || []).map(item => ({
+        province: item.province,
+        total_koperasi: item.count || 0,
+        has_npwp: item.npwp_count || 0,
+        has_nib: item.nib_count || 0,
+        rat_verified: item.rat_count || 0,
+        savings: item.savings_summary?.total_amount || 0,
+        transactions: item.transaction_value || 0
+      }));
+
+      const worksheet = workbook.addWorksheet('Ringkasan Nasional');
+      worksheet.columns = [
+        { header: 'Provinsi', key: 'province', width: 25 },
+        { header: 'Total Koperasi', key: 'total_koperasi', width: 18 },
+        { header: 'Koperasi NPWP', key: 'has_npwp', width: 18 },
+        { header: 'Koperasi NIB', key: 'has_nib', width: 18 },
+        { header: 'RAT Terverifikasi', key: 'rat_verified', width: 20 },
+        { header: 'Simpanan Total', key: 'savings', width: 20 },
+        { header: 'Total Transaksi', key: 'transactions', width: 20 }
+      ];
+
+      // Excel brand design header styling (Excel Green)
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFF' } };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: '107C41' }
+      };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      list.forEach(d => {
+        const row = worksheet.addRow(d);
+        row.getCell('total_koperasi').numFmt = '#,##0';
+        row.getCell('has_npwp').numFmt = '#,##0';
+        row.getCell('has_nib').numFmt = '#,##0';
+        row.getCell('rat_verified').numFmt = '#,##0';
+        row.getCell('savings').numFmt = '"Rp"#,##0';
+        row.getCell('transactions').numFmt = '"Rp"#,##0';
+
+        row.getCell('total_koperasi').alignment = { horizontal: 'right' };
+        row.getCell('has_npwp').alignment = { horizontal: 'right' };
+        row.getCell('has_nib').alignment = { horizontal: 'right' };
+        row.getCell('rat_verified').alignment = { horizontal: 'right' };
+        row.getCell('savings').alignment = { horizontal: 'right' };
+        row.getCell('transactions').alignment = { horizontal: 'right' };
+      });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="Export_Ringkasan_Nasional_Indonesia.xlsx"');
+
+      await workbook.xlsx.write(res);
+      res.end();
+      return;
     }
 
+    // ----------------------------------------------------
+    // BRANCH B: REGIONAL DETAILED EXPORT
+    // ----------------------------------------------------
     let villagesList = [];
 
-    // Helper: Chunk array to throttle parallel requests
-    const chunkArray = (array, size) => {
-      const result = [];
-      for (let i = 0; i < array.length; i += size) {
-        result.push(array.slice(i, i + size));
-      }
-      return result;
-    };
-
     if (sName !== 'All') {
-      // ----------------------------------------------------
-      // BRANCH A: KECAMATAN LEVEL (Single Subdistrict)
-      // ----------------------------------------------------
+      // Branch B1: Kecamatan Level (Single Subdistrict)
       const sub = await resolveSubdistrict(pName, dName, sName);
       if (sub) {
         const sData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${sub.subdistrict_id}?period=2026`);
@@ -721,9 +593,7 @@ router.get('/export', async (req, res) => {
         }));
       }
     } else if (dName !== 'All') {
-      // ----------------------------------------------------
-      // BRANCH B: KABUPATEN LEVEL (Traverse Subdistricts)
-      // ----------------------------------------------------
+      // Branch B2: Kabupaten Level (Traverse Subdistricts)
       const dist = await resolveDistrict(pName, dName);
       if (dist) {
         const distData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
@@ -751,9 +621,7 @@ router.get('/export', async (req, res) => {
         }
       }
     } else {
-      // ----------------------------------------------------
-      // BRANCH C: PROVINCE LEVEL (Full Province Traversal)
-      // ----------------------------------------------------
+      // Branch B3: Province Level (Full Province Traversal - Accelerated Concurrency)
       const prov = await resolveProvince(pName);
       if (prov) {
         const provData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
@@ -776,43 +644,39 @@ router.get('/export', async (req, res) => {
           }
         }
 
-        // 3. Fetch subdistrict details in chunks of 25
-        const subdistrictBatches = chunkArray(allSubdistricts, 25);
-        for (const batch of subdistrictBatches) {
-          const batchResults = await Promise.all(
-            batch.map(item => 
-              fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${item.subdistrict_id}?period=2026`)
-                .then(res => ({ data: res, districtName: item.districtName }))
-                .catch(() => null)
-            )
-          );
+        // 3. Fetch subdistrict details in parallel with concurrency limit of 80
+        const batchResults = await mapConcurrent(allSubdistricts, 80, async (item) => {
+          try {
+            const data = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${item.subdistrict_id}?period=2026`);
+            return { data, districtName: item.districtName };
+          } catch {
+            return null;
+          }
+        });
 
-          // 4. Compile village list
-          for (const res of batchResults) {
-            if (res && res.data?.territorial_data?.villages) {
-              const sData = res.data;
-              villagesList.push(...sData.territorial_data.villages.map(v => ({
-                province: pName,
-                district: res.districtName,
-                subdistrict: sData.territorial_data.subdistrict,
-                village: v.village,
-                koperasi: `Koperasi Desa ${v.village}`,
-                savings: v.savings_summary?.total_amount || 0,
-                transactions: v.transaction_value || 0,
-                npwp: v.npwp_count > 0 ? 'Y' : 'N',
-                nib: v.nib_count > 0 ? 'Y' : 'N',
-                rat_draft: 0,
-                rat_verified: v.rat_count || 0,
-                store_progress: v.accounts_count > 0 ? '100%' : 'Belum pembangunan'
-              })));
-            }
+        // 4. Compile village list
+        for (const res of batchResults) {
+          if (res && res.data?.territorial_data?.villages) {
+            const sData = res.data;
+            villagesList.push(...sData.territorial_data.villages.map(v => ({
+              province: pName,
+              district: res.districtName,
+              subdistrict: sData.territorial_data.subdistrict,
+              village: v.village,
+              koperasi: `Koperasi Desa ${v.village}`,
+              savings: v.savings_summary?.total_amount || 0,
+              transactions: v.transaction_value || 0,
+              npwp: v.npwp_count > 0 ? 'Y' : 'N',
+              nib: v.nib_count > 0 ? 'Y' : 'N',
+              rat_draft: 0,
+              rat_verified: v.rat_count || 0,
+              store_progress: v.accounts_count > 0 ? '100%' : 'Belum pembangunan'
+            })));
           }
         }
       }
     }
 
-    // 5. Generate Excel WorkSheet
-    const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Kesiapan Desa');
 
     worksheet.columns = [
@@ -922,13 +786,7 @@ router.get('/cooperatives/explore', async (req, res) => {
 app.use('/api', router);
 app.use('/', router);
 
-app.listen(port, async () => {
-  try {
-    await connectDb();
-    console.log('Connected to MongoDB successfully for server');
-  } catch (err) {
-    console.error('Failed to connect to MongoDB at server startup:', err.message);
-  }
+app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
 

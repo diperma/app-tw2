@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Search, X, ChevronLeft, ChevronRight, ExternalLink, Users, Award, MapPin } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, X, ChevronLeft, ChevronRight, ExternalLink, Users, MapPin } from 'lucide-react';
 import { fetchExploreCooperatives } from '../services/api';
 
 // Helper utility to dynamically generate the subdirectory slug from a cooperative's name
@@ -38,8 +38,10 @@ const CooperativeExplorer = () => {
   // Fetch cooperatives when activeSearch or page changes
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError(null);
+    Promise.resolve().then(() => {
+      setLoading(true);
+      setError(null);
+    });
 
     fetchExploreCooperatives(activeSearch, page, pageSize)
       .then(res => {

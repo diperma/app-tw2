@@ -1,4 +1,3 @@
-import React from 'react';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
 import { getExportUrl } from '../services/api';
 
@@ -11,8 +10,7 @@ const Filters = ({
   onDistrictChange,
   subdistricts = [],
   selectedSubdistrict = 'All',
-  onSubdistrictChange,
-  onNationalExport
+  onSubdistrictChange
 }) => {
   const handleGoBack = () => {
     if (selectedSubdistrict !== 'All') {
@@ -158,9 +156,11 @@ const Filters = ({
             </button>
           </>
         ) : (
-          <button 
-            onClick={onNationalExport}
-            title="Mempersiapkan data dan unduh Excel untuk seluruh desa di Indonesia"
+          <a 
+            href={getExportUrl('All')}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Unduh Excel Ringkasan Provinsi Tingkat Nasional"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -169,6 +169,7 @@ const Filters = ({
               borderRadius: '10px',
               background: 'linear-gradient(135deg, #107C41 0%, #159A55 100%)',
               color: '#ffffff',
+              textDecoration: 'none',
               fontWeight: 600,
               fontSize: '0.85rem',
               boxShadow: '0 4px 12px rgba(16, 124, 65, 0.18)',
@@ -190,8 +191,8 @@ const Filters = ({
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            Unduh Excel (Nasional) <span style={{ fontSize: '0.72rem', opacity: 0.8, fontWeight: 500, marginLeft: '0.2rem' }}>(~5.1 MB)</span>
-          </button>
+            Unduh Excel (Nasional)
+          </a>
         )}
       </div>
     </div>

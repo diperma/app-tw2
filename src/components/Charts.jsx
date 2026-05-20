@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -22,30 +22,30 @@ ChartJS.register(
   ArcElement
 );
 
+// DB exact strings
+const DB_LABELS = [
+  "Total Pembangunan hingga 20%",
+  "Total Pembangunan 21% - 50%",
+  "Total Pembangunan 51% - 75%",
+  "Total Pembangunan 76% - 99%",
+  "Total Pembangunan 100%"
+];
+
+// User requested display labels
+const DISPLAY_LABELS = [
+  "Hingga 20%",
+  "21% - 50%",
+  "51% - 75%",
+  "76% - 99%",
+  "Selesai 100%"
+];
+
 const Charts = ({ type, province, district }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // DB exact strings
-  const DB_LABELS = [
-    "Total Pembangunan hingga 20%",
-    "Total Pembangunan 21% - 50%",
-    "Total Pembangunan 51% - 75%",
-    "Total Pembangunan 76% - 99%",
-    "Total Pembangunan 100%"
-  ];
-
-  // User requested display labels
-  const DISPLAY_LABELS = [
-    "Hingga 20%",
-    "21% - 50%",
-    "51% - 75%",
-    "76% - 99%",
-    "Selesai 100%"
-  ];
-
   useEffect(() => {
-    setLoading(true);
+    Promise.resolve().then(() => setLoading(true));
     fetchCharts(province, district).then(res => {
       if (type === 'store') {
         // Map DB values to display labels

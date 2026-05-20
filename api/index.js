@@ -476,6 +476,25 @@ router.get('/village-detail', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// Optimized high-concurrency worker pool helper
+async function mapConcurrent(items, concurrency, fn) {
+  const results = [];
+  let index = 0;
+  async function worker() {
+    while (index < items.length) {
+      const currentIndex = index++;
+      const item = items[currentIndex];
+      try {
+        results[currentIndex] = await fn(item);
+      } catch {
+        results[currentIndex] = null;
+      }
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
 
 router.get('/export', async (req, res) => {
   const { province, district, subdistrict } = req.query;
@@ -484,26 +503,76 @@ router.get('/export', async (req, res) => {
     let dName = district || 'All';
     let sName = subdistrict || 'All';
 
-    // 1. Block National Level export
+    const workbook = new ExcelJS.Workbook();
+
+    // ----------------------------------------------------
+    // BRANCH A: NATIONAL SUMMARY EXPORT
+    // ----------------------------------------------------
     if (pName === 'All') {
-      return res.status(400).json({ error: 'Unduh Excel tingkat Nasional dinonaktifkan. Silakan pilih provinsi terlebih dahulu.' });
+      const coop = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026');
+      const list = (coop.nested_data?.grouped || []).map(item => ({
+        province: item.province,
+        total_koperasi: item.count || 0,
+        has_npwp: item.npwp_count || 0,
+        has_nib: item.nib_count || 0,
+        rat_verified: item.rat_count || 0,
+        savings: item.savings_summary?.total_amount || 0,
+        transactions: item.transaction_value || 0
+      }));
+
+      const worksheet = workbook.addWorksheet('Ringkasan Nasional');
+      worksheet.columns = [
+        { header: 'Provinsi', key: 'province', width: 25 },
+        { header: 'Total Koperasi', key: 'total_koperasi', width: 18 },
+        { header: 'Koperasi NPWP', key: 'has_npwp', width: 18 },
+        { header: 'Koperasi NIB', key: 'has_nib', width: 18 },
+        { header: 'RAT Terverifikasi', key: 'rat_verified', width: 20 },
+        { header: 'Simpanan Total', key: 'savings', width: 20 },
+        { header: 'Total Transaksi', key: 'transactions', width: 20 }
+      ];
+
+      // Excel brand design header styling (Excel Green)
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFF' } };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: '107C41' }
+      };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      list.forEach(d => {
+        const row = worksheet.addRow(d);
+        row.getCell('total_koperasi').numFmt = '#,##0';
+        row.getCell('has_npwp').numFmt = '#,##0';
+        row.getCell('has_nib').numFmt = '#,##0';
+        row.getCell('rat_verified').numFmt = '#,##0';
+        row.getCell('savings').numFmt = '"Rp"#,##0';
+        row.getCell('transactions').numFmt = '"Rp"#,##0';
+
+        row.getCell('total_koperasi').alignment = { horizontal: 'right' };
+        row.getCell('has_npwp').alignment = { horizontal: 'right' };
+        row.getCell('has_nib').alignment = { horizontal: 'right' };
+        row.getCell('rat_verified').alignment = { horizontal: 'right' };
+        row.getCell('savings').alignment = { horizontal: 'right' };
+        row.getCell('transactions').alignment = { horizontal: 'right' };
+      });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="Export_Ringkasan_Nasional_Indonesia.xlsx"');
+
+      await workbook.xlsx.write(res);
+      res.end();
+      return;
     }
 
+    // ----------------------------------------------------
+    // BRANCH B: REGIONAL DETAILED EXPORT
+    // ----------------------------------------------------
     let villagesList = [];
 
-    // Helper: Chunk array to throttle parallel requests
-    const chunkArray = (array, size) => {
-      const result = [];
-      for (let i = 0; i < array.length; i += size) {
-        result.push(array.slice(i, i + size));
-      }
-      return result;
-    };
-
     if (sName !== 'All') {
-      // ----------------------------------------------------
-      // BRANCH A: KECAMATAN LEVEL (Single Subdistrict)
-      // ----------------------------------------------------
+      // Branch B1: Kecamatan Level (Single Subdistrict)
       const sub = await resolveSubdistrict(pName, dName, sName);
       if (sub) {
         const sData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${sub.subdistrict_id}?period=2026`);
@@ -523,9 +592,7 @@ router.get('/export', async (req, res) => {
         }));
       }
     } else if (dName !== 'All') {
-      // ----------------------------------------------------
-      // BRANCH B: KABUPATEN LEVEL (Traverse Subdistricts)
-      // ----------------------------------------------------
+      // Branch B2: Kabupaten Level (Traverse Subdistricts)
       const dist = await resolveDistrict(pName, dName);
       if (dist) {
         const distData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/district/${dist.district_id}?period=2026`);
@@ -553,9 +620,7 @@ router.get('/export', async (req, res) => {
         }
       }
     } else {
-      // ----------------------------------------------------
-      // BRANCH C: PROVINCE LEVEL (Full Province Traversal)
-      // ----------------------------------------------------
+      // Branch B3: Province Level (Full Province Traversal - Accelerated Concurrency)
       const prov = await resolveProvince(pName);
       if (prov) {
         const provData = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/province/${prov.province_id}?period=2026`);
@@ -578,43 +643,39 @@ router.get('/export', async (req, res) => {
           }
         }
 
-        // 3. Fetch subdistrict details in chunks of 25
-        const subdistrictBatches = chunkArray(allSubdistricts, 25);
-        for (const batch of subdistrictBatches) {
-          const batchResults = await Promise.all(
-            batch.map(item => 
-              fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${item.subdistrict_id}?period=2026`)
-                .then(res => ({ data: res, districtName: item.districtName }))
-                .catch(() => null)
-            )
-          );
+        // 3. Fetch subdistrict details in parallel with concurrency limit of 80
+        const batchResults = await mapConcurrent(allSubdistricts, 80, async (item) => {
+          try {
+            const data = await fetchJSON(`https://api.simkopdes.go.id/api/statistics/national-readiness/subdistrict/${item.subdistrict_id}?period=2026`);
+            return { data, districtName: item.districtName };
+          } catch {
+            return null;
+          }
+        });
 
-          // 4. Compile village list
-          for (const res of batchResults) {
-            if (res && res.data?.territorial_data?.villages) {
-              const sData = res.data;
-              villagesList.push(...sData.territorial_data.villages.map(v => ({
-                province: pName,
-                district: res.districtName,
-                subdistrict: sData.territorial_data.subdistrict,
-                village: v.village,
-                koperasi: `Koperasi Desa ${v.village}`,
-                savings: v.savings_summary?.total_amount || 0,
-                transactions: v.transaction_value || 0,
-                npwp: v.npwp_count > 0 ? 'Y' : 'N',
-                nib: v.nib_count > 0 ? 'Y' : 'N',
-                rat_draft: 0,
-                rat_verified: v.rat_count || 0,
-                store_progress: v.accounts_count > 0 ? '100%' : 'Belum pembangunan'
-              })));
-            }
+        // 4. Compile village list
+        for (const res of batchResults) {
+          if (res && res.data?.territorial_data?.villages) {
+            const sData = res.data;
+            villagesList.push(...sData.territorial_data.villages.map(v => ({
+              province: pName,
+              district: res.districtName,
+              subdistrict: sData.territorial_data.subdistrict,
+              village: v.village,
+              koperasi: `Koperasi Desa ${v.village}`,
+              savings: v.savings_summary?.total_amount || 0,
+              transactions: v.transaction_value || 0,
+              npwp: v.npwp_count > 0 ? 'Y' : 'N',
+              nib: v.nib_count > 0 ? 'Y' : 'N',
+              rat_draft: 0,
+              rat_verified: v.rat_count || 0,
+              store_progress: v.accounts_count > 0 ? '100%' : 'Belum pembangunan'
+            })));
           }
         }
       }
     }
 
-    // 5. Generate Excel WorkSheet
-    const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Kesiapan Desa');
 
     worksheet.columns = [

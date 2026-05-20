@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Search, ArrowRight, Eye } from 'lucide-react';
 
 const RegionalTable = ({ 
@@ -94,9 +94,9 @@ const RegionalTable = ({
           {/* Clickable premium breadcrumbs navigation */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', flexWrap: 'wrap', marginBottom: '0.5rem', position: 'relative', zIndex: 15, pointerEvents: 'auto', userSelect: 'none' }}>
             <span 
-              onClick={(e) => {
+              onClick={() => {
                 console.log('[DEBUG] Breadcrumb Nasional clicked');
-                handleReset(e);
+                if (onProvinceChange) onProvinceChange('All');
               }}
               style={{ cursor: 'pointer', color: currentProvince === 'All' ? 'var(--secondary)' : 'var(--primary)', fontWeight: currentProvince === 'All' ? 700 : 500, position: 'relative', zIndex: 20, pointerEvents: 'auto' }}
             >

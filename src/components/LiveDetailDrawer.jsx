@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, Download, AlertTriangle, FileText } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Copy, Check, AlertTriangle } from 'lucide-react';
 
 const formatCurrency = (val) => {
   if (val === undefined || val === null) return 'Rp0';
@@ -20,9 +20,11 @@ const LiveDetailDrawer = ({ isOpen, onClose, villageId }) => {
   useEffect(() => {
     if (!isOpen || !villageId) return;
 
-    setLoading(true);
-    setError(null);
-    setData(null);
+    Promise.resolve().then(() => {
+      setLoading(true);
+      setError(null);
+      setData(null);
+    });
 
     // Call the database-free village detail proxy
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';

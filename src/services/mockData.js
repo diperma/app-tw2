@@ -17,7 +17,7 @@ export const getMockStats = (province = "All") => {
   };
 };
 
-export const getMockHighlights = (province = "All") => {
+export const getMockHighlights = () => {
   const categories = [
     { type: "Simpanan", icon: "Wallet", unit: "Miliar" },
     { type: "Transaksi", icon: "ArrowUpRight", unit: "Trx" },
@@ -49,7 +49,7 @@ export const getMockRegionalData = (province = "All") => {
   }));
 };
 
-export const getMockDistrictDetails = (districtId) => {
+export const getMockDistrictDetails = () => {
   return Array.from({ length: 10 }).map((_, i) => ({
     id: i,
     village: `Desa ${i + 1}`,
