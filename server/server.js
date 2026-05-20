@@ -38,12 +38,33 @@ const normalizeName = (name) => {
     .trim();
 };
 
+const KEY_STRING = "EX7rvuSQItlrBOSzePdlrrGuQOjOmIPs";
+const IV_STRING = "HIYa12MVEqtZIiBG";
+
+const decryptPayload = (encryptedBase64) => {
+  try {
+    const key = crypto.createHash('sha256').update(KEY_STRING).digest();
+    const iv = Buffer.from(IV_STRING, 'utf8');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    let decrypted = decipher.update(encryptedBase64, 'base64', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('Decryption error inside server proxy:', err.message);
+    throw err;
+  }
+};
+
 const fetchJSON = async (url) => {
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`API returned status ${res.status} for URL: ${url}`);
   }
-  return res.json();
+  const json = await res.json();
+  if (typeof json.data === 'string') {
+    return JSON.parse(decryptPayload(json.data));
+  }
+  return json;
 };
 
 const getNestedVal = (obj, path) => {
@@ -729,23 +750,6 @@ router.get('/export', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-
-const KEY_STRING = "EX7rvuSQItlrBOSzePdlrrGuQOjOmIPs";
-const IV_STRING = "HIYa12MVEqtZIiBG";
-
-const decryptPayload = (encryptedBase64) => {
-  try {
-    const key = crypto.createHash('sha256').update(KEY_STRING).digest();
-    const iv = Buffer.from(IV_STRING, 'utf8');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encryptedBase64, 'base64', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (err) {
-    console.error('Decryption error inside server proxy:', err.message);
-    throw err;
-  }
-};
 
 router.get('/cooperatives/explore', async (req, res) => {
   const { search = '', page = 1, page_size = 10 } = req.query;
