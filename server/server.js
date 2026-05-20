@@ -3,6 +3,9 @@ import cors from 'cors';
 import ExcelJS from 'exceljs';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { connectDb, getCollection } from './db.js';
 
 dotenv.config();
 
@@ -477,6 +480,201 @@ router.get('/village-detail', async (req, res) => {
   }
 });
 
+// Global Map to track export jobs
+const exportJobs = new Map();
+
+// Helper sleep function to yield event loop and throttle queries
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Status helper
+const getStoreProgress = (storeReadiness) => {
+  if (!storeReadiness || !Array.isArray(storeReadiness)) return 'Belum pembangunan';
+  const mapping = {
+    'Total Pembangunan 100%': '100%',
+    'Total Pembangunan 76% - 99%': '76 - 99%',
+    'Total Pembangunan 51% - 75%': '51 - 75%',
+    'Total Pembangunan 21% - 50%': '21 - 50%',
+    'Total Pembangunan hingga 20%': '0 - 20%'
+  };
+  for (const key of Object.keys(mapping)) {
+    const item = storeReadiness.find(s => s.label === key);
+    if (item && item.value > 0) return mapping[key];
+  }
+  return 'Belum pembangunan';
+};
+
+// Async background Excel generator utilizing MongoDB and non-blocking event-loop yielding
+async function startNationalExportJob(jobId) {
+  try {
+    console.log(`[Job ${jobId}] Starting national export job from database...`);
+    const col = getCollection();
+    
+    // Fetch total document count to calculate progress accurately
+    const total = await col.countDocuments();
+    exportJobs.set(jobId, { status: 'processing', progress: 0, total, processed: 0 });
+    
+    const cursor = col.find({});
+    
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Kesiapan Desa');
+    worksheet.columns = [
+      { header: 'Provinsi', key: 'province', width: 20 },
+      { header: 'Kabupaten', key: 'district', width: 25 },
+      { header: 'Kecamatan', key: 'subdistrict', width: 20 },
+      { header: 'Desa', key: 'village', width: 20 },
+      { header: 'Nama Koperasi', key: 'koperasi', width: 35 },
+      { header: 'Simpanan Total', key: 'savings', width: 20 },
+      { header: 'Total Transaksi', key: 'transactions', width: 20 },
+      { header: 'Status NPWP', key: 'npwp', width: 15 },
+      { header: 'Status NIB', key: 'nib', width: 15 },
+      { header: 'Pengajuan RAT', key: 'rat_draft', width: 15 },
+      { header: 'RAT Terverifikasi', key: 'rat_verified', width: 18 },
+      { header: 'Progres Pembangunan Gerai', key: 'store_progress', width: 28 }
+    ];
+
+    // Excel brand design header styling (Excel Green)
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFF' } };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: '107C41' } // Premium Excel Green
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    let processed = 0;
+    
+    // Process document by document from cursor
+    while (await cursor.hasNext()) {
+      const d = await cursor.next();
+      
+      const row = worksheet.addRow({
+        province: d.territorial_data?.province || '',
+        district: d.territorial_data?.district || '',
+        subdistrict: d.territorial_data?.subdistrict || '',
+        village: d.territorial_data?.village || '',
+        koperasi: d.territorial_data?.village ? `Koperasi Desa ${d.territorial_data.village}` : '',
+        savings: d.savings_summary?.total_amount || 0,
+        transactions: d.economic_impact?.total_value || 0,
+        npwp: d.territorial_data?.totals?.npwp_count > 0 ? 'Y' : 'N',
+        nib: d.territorial_data?.totals?.nib_count > 0 ? 'Y' : 'N',
+        rat_draft: d.rat_summary?.total_draft_rat || 0,
+        rat_verified: d.rat_summary?.total_verified_rat || 0,
+        store_progress: getStoreProgress(d.store_readiness)
+      });
+
+      row.getCell('savings').numFmt = '"Rp"#,##0';
+      row.getCell('transactions').numFmt = '"Rp"#,##0';
+      row.getCell('savings').alignment = { horizontal: 'right' };
+      row.getCell('transactions').alignment = { horizontal: 'right' };
+      row.getCell('npwp').alignment = { horizontal: 'center' };
+      row.getCell('nib').alignment = { horizontal: 'center' };
+      row.getCell('rat_draft').alignment = { horizontal: 'center' };
+      row.getCell('rat_verified').alignment = { horizontal: 'center' };
+
+      processed++;
+
+      // Every 1,000 rows, update progress AND pause/sleep to yield event loop!
+      if (processed % 1000 === 0) {
+        const progress = Math.min(99, Math.round((processed / total) * 100));
+        exportJobs.set(jobId, { status: 'processing', progress, total, processed });
+        
+        // Yield execution to allow server to handle other client HTTP requests
+        await sleep(40);
+      }
+    }
+
+    console.log(`[Job ${jobId}] Finished processing ${processed} rows. Writing workbook...`);
+    
+    // Ensure scratch directory exists
+    const scratchDir = path.join(process.cwd(), 'scratch');
+    if (!fs.existsSync(scratchDir)) {
+      fs.mkdirSync(scratchDir, { recursive: true });
+    }
+    
+    const outputPath = path.join(scratchDir, `export_kesiapan_nasional_${jobId}.xlsx`);
+    await workbook.xlsx.writeFile(outputPath);
+    
+    console.log(`[Job ${jobId}] Workbook successfully written to ${outputPath}`);
+    
+    exportJobs.set(jobId, {
+      status: 'completed',
+      progress: 100,
+      filename: outputPath
+    });
+  } catch (err) {
+    console.error(`[Job ${jobId}] Background export error:`, err);
+    exportJobs.set(jobId, {
+      status: 'failed',
+      progress: 100,
+      error: err.message
+    });
+  }
+}
+
+// 1. Start National Export Background Job
+router.post('/export/national/start', async (req, res) => {
+  try {
+    const jobId = crypto.randomBytes(16).toString('hex');
+    exportJobs.set(jobId, { status: 'processing', progress: 0 });
+    
+    // Fire and forget background process
+    startNationalExportJob(jobId);
+    
+    res.json({ jobId });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 2. Poll National Export Job Status
+router.get('/export/national/status', (req, res) => {
+  const { jobId } = req.query;
+  if (!jobId || !exportJobs.has(jobId)) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+  const job = exportJobs.get(jobId);
+  res.json({
+    status: job.status,
+    progress: job.progress,
+    error: job.error || null
+  });
+});
+
+// 3. Download Completed Excel Sheet
+router.get('/export/national/download', (req, res) => {
+  const { jobId } = req.query;
+  if (!jobId || !exportJobs.has(jobId)) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+  
+  const job = exportJobs.get(jobId);
+  if (job.status !== 'completed' || !job.filename) {
+    return res.status(400).json({ error: 'Job is not complete or file does not exist' });
+  }
+  
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="Export_Kesiapan_Nasional_Indonesia.xlsx"');
+  
+  res.sendFile(job.filename, { dotfiles: 'allow' }, (err) => {
+    if (err) {
+      console.error('File sending error:', err);
+    } else {
+      // Clean up the scratch file after short delay to ensure process freed it
+      setTimeout(() => {
+        try {
+          if (fs.existsSync(job.filename)) {
+            fs.unlinkSync(job.filename);
+            console.log(`Temporary job file ${job.filename} deleted successfully.`);
+          }
+        } catch (unlinkErr) {
+          console.error('Failed to delete temporary job file:', unlinkErr.message);
+        }
+      }, 10000);
+    }
+  });
+});
+
 router.get('/export', async (req, res) => {
   const { province, district, subdistrict } = req.query;
   try {
@@ -724,7 +922,13 @@ router.get('/cooperatives/explore', async (req, res) => {
 app.use('/api', router);
 app.use('/', router);
 
-app.listen(port, () => {
+app.listen(port, async () => {
+  try {
+    await connectDb();
+    console.log('Connected to MongoDB successfully for server');
+  } catch (err) {
+    console.error('Failed to connect to MongoDB at server startup:', err.message);
+  }
   console.log(`Server running on port ${port}`);
 });
 

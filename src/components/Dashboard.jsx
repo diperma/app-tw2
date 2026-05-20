@@ -35,6 +35,107 @@ const Dashboard = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
 
+  // National Export background states
+  const [exportJobId, setExportJobId] = useState(null);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [exportStatus, setExportStatus] = useState('idle'); // idle, processing, completed, failed
+  const [exportError, setExportError] = useState(null);
+  const [isProgressMinimized, setIsProgressMinimized] = useState(false);
+
+  // Polling Effect for background Export Status monitoring
+  useEffect(() => {
+    let intervalId = null;
+    
+    if (exportStatus === 'processing' && exportJobId) {
+      const getApiUrl = () => {
+        const envUrl = import.meta.env.VITE_API_URL;
+        if (!envUrl) return 'http://localhost:5000/api';
+        return envUrl.endsWith('/api') ? envUrl : (envUrl.endsWith('/') ? `${envUrl}api` : `${envUrl}/api`);
+      };
+      const apiBase = getApiUrl();
+      
+      intervalId = setInterval(async () => {
+        try {
+          const res = await fetch(`${apiBase}/export/national/status?jobId=${exportJobId}`);
+          if (!res.ok) throw new Error('Status request failed');
+          const data = await res.json();
+          
+          setExportProgress(data.progress || 0);
+          
+          if (data.status === 'completed') {
+            setExportStatus('completed');
+            clearInterval(intervalId);
+            
+            // Programmatically trigger direct browser download of the scratch XLSX sheet
+            const link = document.createElement('a');
+            link.style.display = 'none';
+            link.href = `${apiBase}/export/national/download?jobId=${exportJobId}`;
+            link.setAttribute('download', 'Export_Kesiapan_Nasional_Indonesia.xlsx');
+            document.body.appendChild(link);
+            link.click();
+            
+            // Auto clean up and slide out widget
+            setTimeout(() => {
+              if (document.body.contains(link)) {
+                document.body.removeChild(link);
+              }
+              setExportStatus('idle');
+              setExportJobId(null);
+              setExportProgress(0);
+            }, 6000);
+          } else if (data.status === 'failed') {
+            setExportStatus('failed');
+            setExportError(data.error || 'Terjadi kesalahan tidak dikenal saat kompilasi excel.');
+            clearInterval(intervalId);
+          }
+        } catch (err) {
+          console.error('Failed to query job status:', err);
+        }
+      }, 1500);
+    }
+    
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [exportStatus, exportJobId]);
+
+  const handleNationalExport = async () => {
+    if (exportStatus === 'processing') {
+      setIsProgressMinimized(false);
+      return;
+    }
+    
+    setExportStatus('processing');
+    setExportProgress(0);
+    setExportError(null);
+    setIsProgressMinimized(false);
+    
+    const getApiUrl = () => {
+      const envUrl = import.meta.env.VITE_API_URL;
+      if (!envUrl) return 'http://localhost:5000/api';
+      return envUrl.endsWith('/api') ? envUrl : (envUrl.endsWith('/') ? `${envUrl}api` : `${envUrl}/api`);
+    };
+    const apiBase = getApiUrl();
+    
+    try {
+      const res = await fetch(`${apiBase}/export/national/start`, { method: 'POST' });
+      if (!res.ok) throw new Error('Gagal memulai proses export di server');
+      const data = await res.json();
+      setExportJobId(data.jobId);
+    } catch (err) {
+      setExportStatus('failed');
+      setExportError(err.message || 'Gagal terhubung ke backend server.');
+    }
+  };
+
+  const handleCancelExport = () => {
+    setExportStatus('idle');
+    setExportJobId(null);
+    setExportProgress(0);
+    setExportError(null);
+    setIsProgressMinimized(false);
+  };
+
   // ==========================================
   // ATOMIC FILTER TRANSITIONS
   // ==========================================
@@ -196,6 +297,7 @@ const Dashboard = () => {
             subdistricts={subdistricts}
             selectedSubdistrict={subdistrict}
             onSubdistrictChange={handleSubdistrictChange} 
+            onNationalExport={handleNationalExport}
           />
         )}
       </header>
@@ -290,6 +392,109 @@ const Dashboard = () => {
       }}>
         © Tim Pengawasan APP KDKMP 2026
       </footer>
+
+      {/* Floating Glassmorphic Progress Widget for Non-blocking Export */}
+      {exportStatus !== 'idle' && (
+        <div className={`export-progress-widget ${isProgressMinimized ? 'minimized' : ''}`}>
+          {isProgressMinimized ? (
+            <button 
+              className="export-widget-pulsing-badge"
+              onClick={() => setIsProgressMinimized(false)}
+              title="Unduh Excel (Nasional) - Klik untuk detail progress"
+            >
+              <svg className="progress-badge-svg" viewBox="0 0 36 36">
+                <path
+                  className="circle-bg"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+                <path
+                  className="circle"
+                  strokeDasharray={`${exportProgress}, 100`}
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+              </svg>
+              <div className="pulsing-badge-content">
+                {exportStatus === 'completed' ? (
+                  <span className="badge-checkmark">✓</span>
+                ) : exportStatus === 'failed' ? (
+                  <span className="badge-error">!</span>
+                ) : (
+                  <span className="badge-percent">{exportProgress}%</span>
+                )}
+              </div>
+            </button>
+          ) : (
+            <div className="export-widget-expanded">
+              <div className="export-widget-header">
+                <h3>Unduh Laporan Nasional</h3>
+                <div className="widget-header-actions">
+                  <button 
+                    onClick={() => setIsProgressMinimized(true)}
+                    className="widget-action-btn minimize-btn"
+                    title="Minimalkan (Ekspor berjalan di latar belakang)"
+                  >
+                    −
+                  </button>
+                  <button 
+                    onClick={handleCancelExport}
+                    className="widget-action-btn cancel-btn"
+                    title="Batalkan Ekspor"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+              
+              <div className="export-widget-body">
+                {exportStatus === 'processing' && (
+                  <>
+                    <p className="widget-status-text">
+                      Mempersiapkan data kesiapan nasional...
+                    </p>
+                    <div className="widget-progress-container">
+                      <div className="widget-progress-bar">
+                        <div 
+                          className="widget-progress-fill" 
+                          style={{ width: `${exportProgress}%` }}
+                        />
+                      </div>
+                      <span className="widget-progress-label">{exportProgress}%</span>
+                    </div>
+                    <p className="widget-info-text">
+                      Laporan ini memuat 83.000+ baris data. Anda dapat menutup panel ini atau terus menjelajahi dashboard; proses pengunduhan akan berjalan secara otomatis di latar belakang.
+                    </p>
+                  </>
+                )}
+                
+                {exportStatus === 'completed' && (
+                  <div className="widget-success-view">
+                    <div className="success-icon-wrapper">
+                      <span className="success-checkmark">✓</span>
+                    </div>
+                    <div>
+                      <p className="success-title">Ekspor Selesai!</p>
+                      <p className="success-desc">Proses kompilasi berhasil. Unduhan Anda dimulai otomatis.</p>
+                    </div>
+                  </div>
+                )}
+                
+                {exportStatus === 'failed' && (
+                  <div className="widget-error-view">
+                    <div className="error-icon-wrapper">
+                      <span className="error-cross">!</span>
+                    </div>
+                    <div>
+                      <p className="error-title">Gagal Mengekspor</p>
+                      <p className="error-desc">{exportError || 'Koneksi terputus.'}</p>
+                      <button onClick={handleNationalExport} className="retry-btn">Coba Lagi</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

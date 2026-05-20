@@ -11,7 +11,8 @@ const Filters = ({
   onDistrictChange,
   subdistricts = [],
   selectedSubdistrict = 'All',
-  onSubdistrictChange
+  onSubdistrictChange,
+  onNationalExport
 }) => {
   const handleGoBack = () => {
     if (selectedSubdistrict !== 'All') {
@@ -73,43 +74,101 @@ const Filters = ({
         </select>
       </div>
 
-      {selectedProvince !== 'All' && (
-        <div className="filter-actions-group">
+      <div className="filter-actions-group">
+        {selectedProvince !== 'All' ? (
+          <>
+            <button 
+              onClick={handleGoBack}
+              title="Kembali ke Tingkat Sebelumnya"
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.4rem', 
+                padding: '0.7rem 1.2rem', 
+                borderRadius: '10px', 
+                background: 'var(--primary-glow)', 
+                border: '1px solid var(--border)', 
+                color: 'var(--primary)', 
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.3s ease'
+              }}
+            >
+              <ArrowLeft size={14} /> Kembali
+            </button>
+            
+            <a 
+              href={getExportUrl(selectedProvince, selectedDistrict, selectedSubdistrict)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Unduh data Excel tingkat ${selectedDistrict === 'All' ? 'Provinsi' : (selectedSubdistrict === 'All' ? 'Kabupaten' : 'Kecamatan')}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.7rem 1.2rem',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, #107C41 0%, #159A55 100%)',
+                color: '#ffffff',
+                textDecoration: 'none',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                boxShadow: '0 4px 12px rgba(16, 124, 65, 0.18)',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 16px rgba(16, 124, 65, 0.26)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 124, 65, 0.18)';
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Unduh Excel ({selectedDistrict === 'All' ? 'Provinsi' : (selectedSubdistrict === 'All' ? 'Kabupaten' : 'Kecamatan')})
+            </a>
+
+            <button 
+              onClick={handleReset}
+              title="Reset ke Seluruh Indonesia"
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.4rem', 
+                padding: '0.7rem 1.2rem', 
+                borderRadius: '10px', 
+                background: 'rgba(207, 19, 34, 0.05)', 
+                border: '1px solid rgba(207, 19, 34, 0.15)', 
+                color: 'var(--danger)', 
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                transition: 'all 0.3s ease'
+              }}
+            >
+              <RotateCcw size={14} /> Reset
+            </button>
+          </>
+        ) : (
           <button 
-            onClick={handleGoBack}
-            title="Kembali ke Tingkat Sebelumnya"
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.4rem', 
-              padding: '0.7rem 1.2rem', 
-              borderRadius: '10px', 
-              background: 'var(--primary-glow)', 
-              border: '1px solid var(--border)', 
-              color: 'var(--primary)', 
-              cursor: 'pointer',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              transition: 'all 0.3s ease'
-            }}
-          >
-            <ArrowLeft size={14} /> Kembali
-          </button>
-          
-          <a 
-            href={getExportUrl(selectedProvince, selectedDistrict, selectedSubdistrict)}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={`Unduh data Excel tingkat ${selectedDistrict === 'All' ? 'Provinsi' : (selectedSubdistrict === 'All' ? 'Kabupaten' : 'Kecamatan')}`}
+            onClick={onNationalExport}
+            title="Mempersiapkan data dan unduh Excel untuk seluruh desa di Indonesia"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: '0.4rem',
-              padding: '0.7rem 1.2rem',
+              padding: '0.7rem 1.4rem',
               borderRadius: '10px',
               background: 'linear-gradient(135deg, #107C41 0%, #159A55 100%)',
               color: '#ffffff',
-              textDecoration: 'none',
               fontWeight: 600,
               fontSize: '0.85rem',
               boxShadow: '0 4px 12px rgba(16, 124, 65, 0.18)',
@@ -131,31 +190,10 @@ const Filters = ({
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            Unduh Excel ({selectedDistrict === 'All' ? 'Provinsi' : (selectedSubdistrict === 'All' ? 'Kabupaten' : 'Kecamatan')})
-          </a>
-
-          <button 
-            onClick={handleReset}
-            title="Reset ke Seluruh Indonesia"
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.4rem', 
-              padding: '0.7rem 1.2rem', 
-              borderRadius: '10px', 
-              background: 'rgba(207, 19, 34, 0.05)', 
-              border: '1px solid rgba(207, 19, 34, 0.15)', 
-              color: 'var(--danger)', 
-              cursor: 'pointer',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              transition: 'all 0.3s ease'
-            }}
-          >
-            <RotateCcw size={14} /> Reset
+            Unduh Excel (Nasional) <span style={{ fontSize: '0.72rem', opacity: 0.8, fontWeight: 500, marginLeft: '0.2rem' }}>(~5.1 MB)</span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
