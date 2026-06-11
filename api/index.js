@@ -38,11 +38,26 @@ const normalizeName = (name) => {
     .trim();
 };
 
-const KEY_STRING = "EX7rvuSQItlrBOSzePdlrrGuQOjOmIPs";
-const IV_STRING = "HIYa12MVEqtZIiBG";
+const KEY_STRING = process.env.SIMKOPDES_ENCRYPTION_KEY;
+const IV_STRING = process.env.SIMKOPDES_ENCRYPTION_IV;
+
+const isValidBase64 = (value) => {
+  if (typeof value !== 'string' || value.length === 0 || value.length % 4 !== 0) return false;
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+};
 
 const decryptPayload = (encryptedBase64) => {
   try {
+    if (!KEY_STRING || !IV_STRING) {
+      throw new Error('Missing Simkopdes encryption configuration');
+    }
+    if (Buffer.byteLength(IV_STRING, 'utf8') !== 16) {
+      throw new Error('Invalid Simkopdes encryption IV length');
+    }
+    if (!isValidBase64(encryptedBase64)) {
+      throw new Error('Invalid encrypted payload encoding');
+    }
+
     const key = crypto.createHash('sha256').update(KEY_STRING).digest();
     const iv = Buffer.from(IV_STRING, 'utf8');
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
@@ -51,7 +66,17 @@ const decryptPayload = (encryptedBase64) => {
     return decrypted;
   } catch (err) {
     console.error('Decryption error inside server proxy:', err.message);
-    throw err;
+    throw new Error('Unable to decode the upstream Simkopdes response', { cause: err });
+  }
+};
+
+const parseEncryptedPayload = (encryptedBase64) => {
+  try {
+    return JSON.parse(decryptPayload(encryptedBase64));
+  } catch (err) {
+    if (err.message === 'Unable to decode the upstream Simkopdes response') throw err;
+    console.error('Invalid decrypted JSON from Simkopdes:', err.message);
+    throw new Error('Unable to decode the upstream Simkopdes response', { cause: err });
   }
 };
 
@@ -62,7 +87,7 @@ const fetchJSON = async (url) => {
   }
   const json = await res.json();
   if (typeof json.data === 'string') {
-    return JSON.parse(decryptPayload(json.data));
+    return parseEncryptedPayload(json.data);
   }
   return json;
 };
@@ -766,8 +791,7 @@ router.get('/cooperatives/explore', async (req, res) => {
     }
     const result = await response.json();
     if (result.data) {
-      const decryptedText = decryptPayload(result.data);
-      const decryptedJson = JSON.parse(decryptedText);
+      const decryptedJson = parseEncryptedPayload(result.data);
       res.json({
         message: result.message,
         data: decryptedJson,

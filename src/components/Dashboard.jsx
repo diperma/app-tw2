@@ -83,19 +83,24 @@ const Dashboard = () => {
   useEffect(() => {
     Promise.resolve().then(() => setLoading(true));
     
-    // Fallback to empty states if fetch fails
-    Promise.all([
+    Promise.allSettled([
       fetchStats(province, district),
       fetchHighlights(province, district),
       fetchRegionalData(province, district, subdistrict)
-    ]).then(([s, h, r]) => {
-      setStats(s || { total_villages: 0, total_simpanan: 0, total_transaksi: 0, rat_submitted: 0, has_npwp: 0, has_nib: 0 });
-      setHighlights(h || []);
-      setRegionalData(r || []);
+    ]).then(([statsResult, highlightsResult, regionalResult]) => {
+      const emptyStats = { total_villages: 0, total_simpanan: 0, total_transaksi: 0, rat_submitted: 0, has_npwp: 0, has_nib: 0 };
+      const nextStats = statsResult.status === 'fulfilled' ? statsResult.value : emptyStats;
+      const nextHighlights = highlightsResult.status === 'fulfilled' && Array.isArray(highlightsResult.value) ? highlightsResult.value : [];
+      const nextRegionalData = regionalResult.status === 'fulfilled' && Array.isArray(regionalResult.value) ? regionalResult.value : [];
+
+      [statsResult, highlightsResult, regionalResult].forEach((result) => {
+        if (result.status === 'rejected') console.error('Failed to load dashboard data:', result.reason);
+      });
+
+      setStats(nextStats && typeof nextStats === 'object' ? nextStats : emptyStats);
+      setHighlights(nextHighlights);
+      setRegionalData(nextRegionalData);
       setLastUpdated(new Date());
-      setLoading(false);
-    }).catch(e => {
-      console.error('Failed to load dashboard data:', e);
       setLoading(false);
     });
   }, [province, district, subdistrict]);

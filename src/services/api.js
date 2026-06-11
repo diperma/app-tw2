@@ -6,44 +6,48 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+const fetchJson = async (url) => {
+  const res = await fetch(url);
+  const payload = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const message = payload?.error || `Request failed with status ${res.status}`;
+    throw new Error(message);
+  }
+
+  return payload;
+};
+
 export const fetchProvinces = async () => {
-  const res = await fetch(`${API_BASE_URL}/provinces`);
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/provinces`);
 };
 
 export const fetchDistricts = async (province) => {
-  const res = await fetch(`${API_BASE_URL}/districts?province=${province}`);
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/districts?province=${province}`);
 };
 
 export const fetchSubdistricts = async (province, district) => {
-  const res = await fetch(`${API_BASE_URL}/subdistricts?province=${province}&district=${district}`);
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/subdistricts?province=${province}&district=${district}`);
 };
 
 export const fetchStats = async (province, district) => {
-  const res = await fetch(`${API_BASE_URL}/stats?province=${province}&district=${district || 'All'}`);
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/stats?province=${province}&district=${district || 'All'}`);
 };
 
 export const fetchHighlights = async (province, district) => {
-  const res = await fetch(`${API_BASE_URL}/highlights?province=${province}&district=${district || 'All'}`);
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/highlights?province=${province}&district=${district || 'All'}`);
 };
 
 export const fetchRegionalData = async (province, district, subdistrict) => {
-  const res = await fetch(`${API_BASE_URL}/regional-data?province=${province}&district=${district || 'All'}&subdistrict=${subdistrict || 'All'}`);
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/regional-data?province=${province}&district=${district || 'All'}&subdistrict=${subdistrict || 'All'}`);
 };
 
 export const fetchCharts = async (province, district) => {
-  const res = await fetch(`${API_BASE_URL}/charts?province=${province}&district=${district || 'All'}`);
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/charts?province=${province}&district=${district || 'All'}`);
 };
 
 export const fetchDistrictDetails = async (province, districtName, type) => {
-  const res = await fetch(`${API_BASE_URL}/district-detail?province=${province || 'All'}&district=${districtName}&type=${type}`);
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/district-detail?province=${province || 'All'}&district=${districtName}&type=${type}`);
 };
 
 export const getExportUrl = (province, district, subdistrict) => {
@@ -54,7 +58,5 @@ export const getExportUrl = (province, district, subdistrict) => {
 };
 
 export const fetchExploreCooperatives = async (search = '', page = 1, pageSize = 10) => {
-  const res = await fetch(`${API_BASE_URL}/cooperatives/explore?search=${encodeURIComponent(search)}&page=${page}&page_size=${pageSize}`);
-  if (!res.ok) throw new Error('Failed to fetch cooperatives data');
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/cooperatives/explore?search=${encodeURIComponent(search)}&page=${page}&page_size=${pageSize}`);
 };

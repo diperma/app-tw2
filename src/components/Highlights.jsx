@@ -9,6 +9,7 @@ const Highlights = ({
   onSubdistrictChange
 }) => {
   const icons = { Wallet, ArrowUpRight, CheckCircle };
+  const highlightGroups = Array.isArray(highlights) ? highlights : [];
 
   const handleRowClick = (item) => {
     console.log('[HIGHLIGHTS] Row clicked!', item);
@@ -36,7 +37,7 @@ const Highlights = ({
 
   return (
     <div className="highlights-container">
-      {highlights.map((group, i) => {
+      {highlightGroups.map((group, i) => {
         const Icon = icons[group.icon] || Wallet;
         return (
           <div key={i} className="glass-card" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', height: '380px' }}>
@@ -57,7 +58,7 @@ const Highlights = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {group.districts.map((d, idx) => (
+                  {(Array.isArray(group.districts) ? group.districts : []).map((d, idx) => (
                     <tr 
                       key={idx} 
                       onClick={() => handleRowClick(d)} 
