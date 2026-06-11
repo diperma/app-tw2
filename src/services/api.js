@@ -1,6 +1,6 @@
 const getApiBaseUrl = () => {
   const url = import.meta.env.VITE_API_URL;
-  if (!url) return 'http://localhost:5000/api';
+  if (!url) return import.meta.env.DEV ? 'http://localhost:5000/api' : '/api';
   return url.endsWith('/api') ? url : (url.endsWith('/') ? `${url}api` : `${url}/api`);
 };
 
