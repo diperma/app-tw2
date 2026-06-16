@@ -92,6 +92,18 @@ const fetchJSON = async (url) => {
   return json;
 };
 
+const LAND_MAPPING_STATS_URL = 'https://pemetaan-lahan.portalkdkmp.id/api/validasi-lahan/get-stats';
+
+const fetchLandMappingStats = async () => {
+  try {
+    const data = await fetchJSON(LAND_MAPPING_STATS_URL);
+    return data?.stats || null;
+  } catch (e) {
+    console.warn('Failed to load land mapping stats, falling back to Simkopdes store readiness:', e.message);
+    return null;
+  }
+};
+
 const getNestedVal = (obj, path) => {
   return path.split('.').reduce((acc, part) => acc && acc[part] !== undefined ? acc[part] : 0, obj);
 };
@@ -174,12 +186,17 @@ router.get('/stats', async (req, res) => {
   const { province = 'All', district = 'All' } = req.query;
   try {
     if (province === 'All') {
-      const coop = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026');
-      const econ = await fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/economic-impact-rat?period=2026');
+      const [coop, econ, landMappingStats] = await Promise.all([
+        fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/cooperative-stats?period=2026'),
+        fetchJSON('https://api.simkopdes.go.id/api/statistics/national-readiness/economic-impact-rat?period=2026'),
+        fetchLandMappingStats()
+      ]);
       const total_simpanan = (coop.nested_data?.grouped || []).reduce((sum, item) => sum + (item.savings_summary?.total_amount || 0), 0);
       const storeData = coop.store_readiness || [];
-      const gerai_all_progress = storeData.reduce((sum, item) => sum + (item.value || 0), 0);
-      const gerai_100_percent = storeData.find(item => item.label === 'Total Pembangunan 100%')?.value || 0;
+      const simkopdes_gerai_all_progress = storeData.reduce((sum, item) => sum + (item.value || 0), 0);
+      const simkopdes_gerai_100_percent = storeData.find(item => item.label === 'Total Pembangunan 100%')?.value || 0;
+      const gerai_all_progress = landMappingStats?.total ?? simkopdes_gerai_all_progress;
+      const gerai_100_percent = landMappingStats?.done_pembangunan ?? simkopdes_gerai_100_percent;
       
       return res.json({
         total_villages: coop.cooperative_stats?.total || 0,
